@@ -4,6 +4,7 @@
   outputs = { self }: {
     homeManagerModules = {
       developer = ./modules/developer;
+      notebooks = ./modules/notebooks;
       ssh = ./modules/ssh;
     };
     darwinModules = {
