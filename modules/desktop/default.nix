@@ -1,7 +1,7 @@
 { lib, ... }:
 
 {
-  imports = [ ./mac-apps.nix ./home-folders.nix ./chrome.nix ./ghostty ];
+  imports = [ ./mac-apps.nix ./home-folders.nix ./chrome.nix ./ghostty ./git.nix ];
 
   options.dnix.desktop.enable = lib.mkEnableOption "a machine with a screen";
 }
