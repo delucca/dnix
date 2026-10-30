@@ -2,7 +2,9 @@
   description = "Daniel's shared nix modules";
 
   outputs = { self }: {
-    homeManagerModules = { };
+    homeManagerModules = {
+      developer = ./modules/developer;
+    };
     darwinModules = {
       nix = ./modules/nix;
     };
