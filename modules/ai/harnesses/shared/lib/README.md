@@ -18,23 +18,9 @@ Speak one protocol to one kind of remote thing.
 |---|---|
 | `mcp_stdio.py` | Any MCP server spawned as a **subprocess**, over newline-delimited JSON-RPC 2.0 on its stdio. Used by use-chrome, use-pdf-reader and other MCP-backed skills. |
 
-## Credential adapters
-
-Turn a secret at rest into a usable value.
-
-| Module | Credential |
-|---|---|
-| _none yet_ | |
-
-## Output port
-
-| Module | Role |
-|---|---|
-| `emit.py` | The single way a skill script returns a result. Short payloads print inline; large ones spill to a timestamped file under a per-skill cache dir and print a preview, so the calling agent can `Read` the rest. |
-
 ## Adding a module
 
-It belongs in a lib only if it is one of the three kinds above (a transport, a
-credential source, or the output port) and at least two skills need it; it
+It belongs in a lib only if it is a named adapter with one job (a transport, a
+credential source, an output port) and at least two skills need it; it
 belongs in THIS lib only if those skills are not all in one set. A helper used by exactly one skill belongs in that skill's
 own directory; a grab-bag `utils.py` belongs nowhere.
