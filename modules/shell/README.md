@@ -31,3 +31,4 @@ dnix.shell.enable = true;
 
 - The zsh files go where home-manager puts them: `~/.zshrc` by default, `~/.config/zsh` on a host with `xdg.enable` and a `home.stateVersion` of 26.05 or later.
 - Anything else goes in the host's own `programs.zsh` next to it; aliases, init and session variables merge.
+- The prompt loads `starship.toml` into `programs.starship.settings`, so a host overrides one key there, such as `programs.starship.settings.character.success_symbol`, and keeps the rest.

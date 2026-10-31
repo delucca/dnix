@@ -69,8 +69,10 @@ in
       ];
     };
 
-    programs.starship.enable = true;
-    xdg.configFile."starship.toml".source = ./starship.toml;
+    programs.starship = {
+      enable = true;
+      settings = lib.mapAttrsRecursive (_: lib.mkDefault) (lib.importTOML ./starship.toml);
+    };
 
     programs.zoxide = {
       enable = true;
