@@ -1,25 +1,18 @@
 # dsession
 
-`dsession` starts or resumes a Codex, Claude Code or agy session with a list of linked project directories loaded. Each linked directory contributes its instructions (`AGENTS.md` or `CLAUDE.md`), its native skills (`.agents/skills`, `.claude/skills`), its hooks (`.codex/hooks.json`, `.claude/settings.json`) and, for agy, its Claude agents (`.claude/agents`), on top of the user's global configuration and the project in the working directory. The directories stay ordinary checkouts. It runs from a terminal or from an editor that passes the list. `dnix.dsession.enable` puts it on PATH.
+`dsession` starts or resumes a Codex, Claude Code or agy session with a list of linked project directories loaded. Each linked directory contributes its instructions (`AGENTS.md` or `CLAUDE.md`), its native skills (`.agents/skills`, `.claude/skills`), its hooks (`.codex/hooks.json`, `.claude/settings.json`) and, for agy, its Claude agents (`.claude/agents`), on top of the user's global configuration and the project in the working directory. The directories stay ordinary checkouts. It runs from a terminal or from an editor that passes the list. `dnix.ai.enable` puts it on PATH; `dnix.ai.dsession.enable` turns it off or on alone.
 
 ## Files
 
 ```
-default.nix              the home-manager module
+default.nix              the dnix.ai.dsession options and the package
 dsession.py              the launcher, Python 3 standard library only
-tests/test_dsession.py   the unit tests behind the flake check dsession
+tests/test_dsession.py   the unit tests behind the flake check ai-dsession, listed in ../tests
 ```
 
-## Module
+## Options
 
-```nix
-dnix.dsession = {
-  enable = true;
-  wrappers = [ [ "wrap" "agent" "run" "claude" ] ];
-};
-```
-
-`wrappers` is written to `~/.config/dsession/config.json`; it is empty by default and then no file is written. `dnix.dsession.script` is read only: `dsession.py` with a `#!/usr/bin/env python3` line, for shipping the launcher to a machine that does not run this module.
+The options live under `dnix.ai.dsession` and are listed in the [ai README](../README.md). `wrappers` is written to `~/.config/dsession/config.json`, for example `[ [ "wrap" "agent" "run" "claude" ] ]`; when it is empty no file is written. `script` is `dsession.py` with a `#!/usr/bin/env python3` line, for shipping the launcher to a machine that does not run this module.
 
 ## Usage
 
@@ -147,4 +140,4 @@ Rendering never blocks a launch. When `agy-agent-md` is not on PATH, dsession wa
 nix flake check
 ```
 
-runs them as the check `dsession`.
+runs them as the check `ai-dsession`.

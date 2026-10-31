@@ -5,9 +5,9 @@
 
   outputs = { self, nixpkgs }: {
     homeManagerModules = {
+      ai = ./modules/ai;
       desktop = ./modules/desktop;
       developer = ./modules/developer;
-      dsession = ./modules/dsession;
       notebooks = ./modules/notebooks;
       shell = ./modules/shell;
       ssh = ./modules/ssh;
@@ -16,6 +16,6 @@
       nix = ./modules/nix;
     };
     nixosModules = { };
-    checks.aarch64-darwin = import ./modules/dsession/tests { pkgs = nixpkgs.legacyPackages.aarch64-darwin; };
+    checks.aarch64-darwin = nixpkgs.lib.mapAttrs' (name: nixpkgs.lib.nameValuePair "ai-${name}") (import ./modules/ai/tests { pkgs = nixpkgs.legacyPackages.aarch64-darwin; });
   };
 }

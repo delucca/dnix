@@ -1,11 +1,15 @@
 { config, lib, pkgs, ... }:
 
 let
-  cfg = config.dnix.dsession;
+  cfg = config.dnix.ai.dsession;
 in
 {
-  options.dnix.dsession = {
-    enable = lib.mkEnableOption "the dsession launcher";
+  options.dnix.ai.dsession = {
+    enable = lib.mkOption {
+      type = lib.types.bool;
+      default = config.dnix.ai.enable;
+      defaultText = lib.literalExpression "config.dnix.ai.enable";
+    };
     wrappers = lib.mkOption {
       type = lib.types.listOf (lib.types.listOf lib.types.str);
       default = [ ];
