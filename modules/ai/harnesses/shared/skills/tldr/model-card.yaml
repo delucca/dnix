@@ -1,0 +1,39 @@
+built_with:
+  model: claude-fable-5
+  date: 2026-07-31
+  author: the user
+
+evaluated_with:
+  - model: claude-sonnet-5
+    eval_type: functional
+    score: 5/5
+    tool: manual-dogfood
+    date: 2026-07-31
+    notes: >
+      Fresh subagent executed SKILL.md against a 280-word verbose reply with a
+      buried A-or-B question. Checks passed: headline-first outcome; 79/120 words
+      (wc -w gate run); all 7 figures/identifiers verbatim; "On you:" question
+      preserved; format rules held (no headers, single bold). Two friction points
+      it reported (bullets-vs-prose default, tangential-but-flagged content) were
+      fixed in SKILL.md after the run.
+
+compatibility:
+  claude-fable-5: partial   # authored/reviewed on fable; functional run was on sonnet
+  claude-sonnet-5: verified
+  codex: untested
+
+harness_compatibility:
+  claude-code: verified   # dogfood ran in the claude-code harness
+  codex: untested         # served via ~/.codex/skills stub; no harness-specific calls
+
+trigger_eval:
+  should_trigger:
+    - "tldr"
+    - "condense that"
+    - "shorter"
+    - "that was way too long"
+    - "just give me the idea"
+  should_not_trigger:
+    - "make this sound less like AI"
+    - "explain step by step" # explain
+    - "brief me on X" # brief

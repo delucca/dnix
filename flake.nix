@@ -13,6 +13,7 @@
       ssh = ./modules/ssh;
     };
     darwinModules = {
+      ai = ./modules/ai/darwin.nix;
       nix = ./modules/nix;
     };
     nixosModules = { };
