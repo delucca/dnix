@@ -6,6 +6,7 @@
       desktop = ./modules/desktop;
       developer = ./modules/developer;
       notebooks = ./modules/notebooks;
+      shell = ./modules/shell;
       ssh = ./modules/ssh;
     };
     darwinModules = {
