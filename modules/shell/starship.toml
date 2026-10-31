@@ -1,7 +1,5 @@
 "$schema" = 'https://starship.rs/config-schema.json'
 
-palette = 'tokyo_night'
-
 # Performance
 scan_timeout = 30
 command_timeout = 1000
@@ -14,16 +12,16 @@ $character"""
 right_format = """$cmd_duration$nodejs$python$rust$golang$docker_context$kubernetes"""
 
 add_newline = true
-continuation_prompt = '[▸ ](fg:overlay) '
+continuation_prompt = '[▸ ](fg:bright-black) '
 
 # ── Prompt Character ─────────────────────────────────────────
 [character]
-success_symbol = '[❯](bold fg:accent)'
-error_symbol = '[❯](bold fg:error)'
-vimcmd_symbol = '[❮](bold fg:accent)'
-vimcmd_replace_one_symbol = '[❮](bold fg:mauve)'
-vimcmd_replace_symbol = '[❮](bold fg:mauve)'
-vimcmd_visual_symbol = '[❮](bold fg:warning)'
+success_symbol = '[❯](bold fg:cyan)'
+error_symbol = '[❯](bold fg:red)'
+vimcmd_symbol = '[❮](bold fg:cyan)'
+vimcmd_replace_one_symbol = '[❮](bold fg:purple)'
+vimcmd_replace_symbol = '[❮](bold fg:purple)'
+vimcmd_visual_symbol = '[❮](bold fg:yellow)'
 
 # ── Directory ────────────────────────────────────────────────
 [directory]
@@ -32,7 +30,7 @@ truncation_symbol = '…/'
 truncate_to_repo = true
 style = 'bold fg:blue'
 read_only = ' 󰌾'
-read_only_style = 'fg:error'
+read_only_style = 'fg:red'
 format = '[$path]($style)[$read_only]($read_only_style) '
 
 [directory.substitutions]
@@ -42,13 +40,13 @@ format = '[$path]($style)[$read_only]($read_only_style) '
 # ── Git ──────────────────────────────────────────────────────
 [git_branch]
 symbol = ' '
-style = 'fg:mauve'
+style = 'fg:purple'
 format = 'on [$symbol$branch(:$remote_branch)]($style) '
 truncation_length = 24
 truncation_symbol = '…'
 
 [git_status]
-style = 'fg:warning'
+style = 'fg:yellow'
 format = '([$all_status$ahead_behind]($style))'
 conflicted = ' '
 ahead = '⇡${count}'
@@ -63,33 +61,33 @@ deleted = '✘${count}'
 
 [git_state]
 format = '[\($state( $progress_current/$progress_total)\)]($style) '
-style = 'fg:overlay'
+style = 'fg:bright-black'
 
 # ── Command Duration ─────────────────────────────────────────
 [cmd_duration]
 min_time = 2_000
 format = '[ $duration]($style) '
-style = 'fg:warning'
+style = 'fg:yellow'
 show_notifications = true
 min_time_to_notify = 30_000
 
 # ── Username & Hostname (SSH only) ───────────────────────────
 [username]
 show_always = false
-style_user = 'fg:accent'
-style_root = 'bold fg:error'
-format = '[$user]($style)[@](fg:overlay)'
+style_user = 'fg:cyan'
+style_root = 'bold fg:red'
+format = '[$user]($style)[@](fg:bright-black)'
 
 [hostname]
 ssh_only = true
 format = '[$hostname]($style) '
-style = 'fg:accent'
+style = 'fg:cyan'
 
 # ── Languages (right prompt, auto-detected) ──────────────────
 [nodejs]
 symbol = ' '
 format = '[$symbol$version]($style) '
-style = 'fg:accent'
+style = 'fg:cyan'
 detect_extensions = ['js', 'mjs', 'cjs', 'ts', 'mts', 'cts']
 detect_files = ['package.json', '.node-version', '.nvmrc']
 detect_folders = ['node_modules']
@@ -97,7 +95,7 @@ detect_folders = ['node_modules']
 [python]
 symbol = ' '
 format = '[$symbol$version( \($virtualenv\))]($style) '
-style = 'fg:warning'
+style = 'fg:yellow'
 detect_extensions = ['py']
 detect_files = ['.python-version', 'Pipfile', 'pyproject.toml', 'requirements.txt', 'setup.py', 'tox.ini']
 detect_folders = ['__pycache__', '.venv', 'venv']
@@ -105,7 +103,7 @@ detect_folders = ['__pycache__', '.venv', 'venv']
 [rust]
 symbol = ' '
 format = '[$symbol$version]($style) '
-style = 'fg:error'
+style = 'fg:red'
 detect_extensions = ['rs']
 detect_files = ['Cargo.toml']
 
@@ -134,8 +132,8 @@ detect_files = ['k8s', 'kubernetes', 'deployment.yaml', 'deployment.yml']
 detect_extensions = []
 detect_folders = ['charts', 'helm']
 contexts = [
-  { context_pattern = '.*prod.*', style = 'bold fg:error', symbol = '⎈ ' },
-  { context_pattern = '.*stag.*', style = 'fg:warning', symbol = '⎈ ' },
+  { context_pattern = '.*prod.*', style = 'bold fg:red', symbol = '⎈ ' },
+  { context_pattern = '.*stag.*', style = 'fg:yellow', symbol = '⎈ ' },
 ]
 
 # ── Disabled Modules ─────────────────────────────────────────
@@ -153,18 +151,3 @@ disabled = true
 
 [git_metrics]
 disabled = true
-
-# ── Tokyo Night Palette ──────────────────────────────────────
-[palettes.tokyo_night]
-# Base
-bg = '#1a1b26'
-fg = '#c0caf5'
-overlay = '#565f89'
-
-# Accent colors
-blue = '#7aa2f7'
-mauve = '#bb9af7'
-accent = '#89B4FA'
-warning = '#e0af68'
-error = '#f7768e'
-info = '#7dcfff'

@@ -13,12 +13,6 @@ in
 
     home.sessionVariables = {
       EDITOR = "nvim";
-      EZA_COLORS = "di=38;2;137;180;250:ln=38;2;148;226;213:ex=38;2;166;227;161:"
-        + "ur=38;2;249;226;175:uw=38;2;250;179;135:ux=38;2;166;227;161:"
-        + "gr=38;2;249;226;175:gw=38;2;250;179;135:gx=38;2;166;227;161:"
-        + "tr=38;2;249;226;175:tw=38;2;250;179;135:tx=38;2;166;227;161:"
-        + "sn=38;2;166;227;161:sb=38;2;166;227;161:uu=38;2;203;166;247:"
-        + "da=38;2;147;153;178";
     };
 
     programs.zsh = {
@@ -33,9 +27,9 @@ in
       syntaxHighlighting = {
         enable = true;
         styles = {
-          command = "fg=#CBA6F7";
-          builtin = "fg=#CBA6F7";
-          alias = "fg=#CBA6F7";
+          command = "fg=magenta";
+          builtin = "fg=magenta";
+          alias = "fg=magenta";
         };
       };
       historySubstringSearch = {
