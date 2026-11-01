@@ -136,7 +136,7 @@ in
 
   config = lib.mkIf cfg.enable {
     assertions = lib.mapAttrsToList (name: e: {
-      assertion = !e.enable || e.source != null;
+      assertion = e.source != null;
       message = "dnix.ai: '${name}' has no source; a typo in a skill or agent name?";
     }) (cfg.skills // cfg.agents)
     ++ lib.mapAttrsToList (name: _: {
