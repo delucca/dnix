@@ -1,0 +1,261 @@
+# Cloud side of one offsite backup domain, on the laptop with admin AWS creds and
+# op: a scoped IAM user and inline policy, its access key and two rclone crypt
+# passwords stored in a 1Password item, and a bucket lifecycle rule merged into
+# the existing ones. Dry-run unless --apply. The four values then go into the
+# domain's sops file.
+#
+#   setup-s3 --bucket NAME --region REGION --prefix PREFIX --op-vault NAME
+#            [--apply] [--account ID] [--user NAME] [--expire-days N] [--op-item NAME]
+#
+# --user defaults to <prefix>-backup and --op-item to <prefix>-s3-backup. With
+# --account, a caller in another AWS account gets a warning.
+
+log()  { printf '\033[1;34m[setup-s3]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[setup-s3] WARN:\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[1;31m[setup-s3] ERROR:\033[0m %s\n' "$*" >&2; exit 1; }
+plan() { printf '\033[1;36m[setup-s3] %s:\033[0m %s\n' "$PLAN_VERB" "$*"; }
+
+usage() { awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; seen=1; next} seen{exit}' "$0"; exit 0; }
+
+APPLY=0
+BUCKET=
+REGION=
+PREFIX=
+IAM_USER=
+EXPIRE_DAYS=35
+OP_ITEM=
+OP_VAULT=
+AWS_ACCOUNT=
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply)        APPLY=1; shift ;;
+    --bucket)       BUCKET="${2:?--bucket needs a value}"; shift 2 ;;
+    --region)       REGION="${2:?--region needs a value}"; shift 2 ;;
+    --prefix)       PREFIX="${2:?--prefix needs a value}"; shift 2 ;;
+    --user)         IAM_USER="${2:?--user needs a value}"; shift 2 ;;
+    --expire-days)  EXPIRE_DAYS="${2:?--expire-days needs a value}"; shift 2 ;;
+    --op-item)      OP_ITEM="${2:?--op-item needs a value}"; shift 2 ;;
+    --op-vault)     OP_VAULT="${2:?--op-vault needs a value}"; shift 2 ;;
+    --account)      AWS_ACCOUNT="${2:?--account needs a value}"; shift 2 ;;
+    -h|--help)      usage ;;
+    *)              die "unknown argument: $1 (try --help)" ;;
+  esac
+done
+
+[ -n "$BUCKET" ]   || die "--bucket is required (try --help)."
+[ -n "$REGION" ]   || die "--region is required (try --help)."
+[ -n "$PREFIX" ]   || die "--prefix is required (try --help)."
+[ -n "$OP_VAULT" ] || die "--op-vault is required (try --help)."
+PREFIX="${PREFIX%/}"
+IAM_USER="${IAM_USER:-$PREFIX-backup}"
+OP_ITEM="${OP_ITEM:-$PREFIX-s3-backup}"
+case "$EXPIRE_DAYS" in
+  ''|*[!0-9]*) die "--expire-days must be a positive integer (got '$EXPIRE_DAYS')." ;;
+esac
+
+POLICY_NAME="$IAM_USER-access"
+LIFECYCLE_RULE_ID="$PREFIX-expire"
+
+PLAN_VERB="WOULD"; [ "$APPLY" -eq 1 ] && PLAN_VERB="DOING"
+
+if [ "$APPLY" -eq 1 ]; then
+  log "running with --apply: AWS + 1Password WILL be mutated."
+else
+  log "DRY-RUN (default): nothing will be mutated. Re-run with --apply to converge."
+fi
+
+for t in aws op rclone jq; do
+  command -v "$t" >/dev/null 2>&1 || die "$t not found."
+done
+
+CALLER="$(aws sts get-caller-identity --output json 2>/dev/null)" \
+  || die "aws sts get-caller-identity failed -- no usable AWS credentials."
+CALLER_ARN="$(printf '%s' "$CALLER" | jq -r '.Arn')"
+CALLER_ACCT="$(printf '%s' "$CALLER" | jq -r '.Account')"
+warn "provisioning AS AWS identity: $CALLER_ARN (account $CALLER_ACCT)."
+[ -z "$AWS_ACCOUNT" ] || [ "$CALLER_ACCT" = "$AWS_ACCOUNT" ] \
+  || warn "AWS account is $CALLER_ACCT, expected $AWS_ACCOUNT -- check you are using the right profile."
+
+# A real read: op whoami succeeds against a locked vault.
+op vault get "$OP_VAULT" >/dev/null 2>&1 || die "op cannot reach the $OP_VAULT vault. Run: eval \"\$(op signin)\""
+
+BUCKET_ARN="arn:aws:s3:::$BUCKET"
+OBJECT_ARN="arn:aws:s3:::$BUCKET/$PREFIX/*"
+log "target: bucket=$BUCKET region=$REGION prefix=$PREFIX/ user=$IAM_USER"
+
+op_field() {  # <field>
+  op item get "$OP_ITEM" --vault "$OP_VAULT" --fields "label=$1" --reveal 2>/dev/null || true
+}
+op_item_exists() { op item get "$OP_ITEM" --vault "$OP_VAULT" >/dev/null 2>&1; }
+op_set_fields() {  # field=value ...
+  if op_item_exists; then
+    op item edit "$OP_ITEM" --vault "$OP_VAULT" "$@" >/dev/null
+  else
+    op item create --category "API Credential" --title "$OP_ITEM" --vault "$OP_VAULT" "$@" >/dev/null
+  fi
+}
+
+log "step 1/5: IAM user '$IAM_USER'"
+if aws iam get-user --user-name "$IAM_USER" >/dev/null 2>&1; then
+  log "  user '$IAM_USER' already exists -- ok"
+else
+  plan "create IAM user '$IAM_USER'"
+  if [ "$APPLY" -eq 1 ]; then
+    aws iam create-user --user-name "$IAM_USER" >/dev/null
+    log "  created IAM user '$IAM_USER'"
+  fi
+fi
+
+log "step 2/5: inline policy '$POLICY_NAME' on '$IAM_USER'"
+umask 077
+POLICY_TMP="$(mktemp)"; trap 'rm -f "$POLICY_TMP"' EXIT
+jq -n --arg bucket "$BUCKET_ARN" --arg objects "$OBJECT_ARN" '{
+  Version: "2012-10-17",
+  Statement: [
+    {
+      Sid: "BucketList",
+      Effect: "Allow",
+      Action: ["s3:ListBucket", "s3:GetBucketLocation"],
+      Resource: $bucket
+    },
+    {
+      Sid: "ObjectAccess",
+      Effect: "Allow",
+      Action: [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:GetObjectTagging"
+      ],
+      Resource: $objects
+    }
+  ]
+}' > "$POLICY_TMP"
+
+log "  policy document:"
+sed 's/^/    /' "$POLICY_TMP"
+plan "put inline policy '$POLICY_NAME' (scoped to $OBJECT_ARN)"
+if [ "$APPLY" -eq 1 ]; then
+  aws iam put-user-policy \
+    --user-name "$IAM_USER" \
+    --policy-name "$POLICY_NAME" \
+    --policy-document "file://$POLICY_TMP"
+  log "  applied inline policy '$POLICY_NAME'"
+fi
+
+log "step 3/5: access key for '$IAM_USER' -> op item '$OP_ITEM'"
+EXISTING_KEY_IN_OP="$(op_field access_key_id)"
+IAM_KEYS=()
+while IFS= read -r _key; do
+  [ -n "$_key" ] && IAM_KEYS+=("$_key")
+done < <(
+  aws iam list-access-keys --user-name "$IAM_USER" --output json 2>/dev/null \
+    | jq -r '.AccessKeyMetadata[].AccessKeyId' || true
+)
+log "  IAM currently has ${#IAM_KEYS[@]} access key(s) for '$IAM_USER'"
+
+KEY_STILL_VALID=0
+if [ -n "$EXISTING_KEY_IN_OP" ]; then
+  for k in "${IAM_KEYS[@]:-}"; do
+    [ "$k" = "$EXISTING_KEY_IN_OP" ] && KEY_STILL_VALID=1 && break
+  done
+fi
+
+if [ "$KEY_STILL_VALID" -eq 1 ]; then
+  log "  op item already holds a live access key ($EXISTING_KEY_IN_OP) -- skipping (idempotent)"
+else
+  if [ -n "$EXISTING_KEY_IN_OP" ]; then
+    warn "  op item references access key '$EXISTING_KEY_IN_OP' which IAM no longer has -- a fresh key is needed."
+  fi
+  plan "create a NEW access key for '$IAM_USER' and store id+secret into op item '$OP_ITEM'"
+  warn "  AWS reveals the secret access key EXACTLY ONCE, at creation -- it is captured straight into 1Password, never printed."
+  if [ "${#IAM_KEYS[@]}" -ge 2 ] && [ "$APPLY" -eq 1 ]; then
+    die "  '$IAM_USER' already has 2 access keys (AWS max). Delete a stale one first: aws iam delete-access-key --user-name $IAM_USER --access-key-id <id>"
+  fi
+  if [ "$APPLY" -eq 1 ]; then
+    KEY_JSON="$(aws iam create-access-key --user-name "$IAM_USER" --output json)"
+    AK_ID="$(printf '%s' "$KEY_JSON" | jq -r '.AccessKey.AccessKeyId')"
+    AK_SECRET="$(printf '%s' "$KEY_JSON" | jq -r '.AccessKey.SecretAccessKey')"
+    KEY_JSON=""
+    [ -n "$AK_ID" ] && [ -n "$AK_SECRET" ] || die "  could not parse the created access key from aws output."
+    op_set_fields "access_key_id=$AK_ID" "secret_access_key=$AK_SECRET"
+    AK_SECRET=""
+    log "  stored access_key_id=$AK_ID + secret_access_key (hidden) into op item '$OP_ITEM'"
+  fi
+fi
+
+log "step 4/5: rclone crypt passwords in op item '$OP_ITEM'"
+HAVE_PW1="$(op_field rclone_crypt_password)"
+HAVE_PW2="$(op_field rclone_crypt_password2)"
+if [ -n "$HAVE_PW1" ] && [ -n "$HAVE_PW2" ]; then
+  log "  both crypt passwords already present -- skipping (idempotent)"
+else
+  plan "generate the missing rclone crypt password(s) (obscured) and store in op item '$OP_ITEM'"
+  warn "  crypt passwords are the ENCRYPTION KEYS for the offsite archives -- if lost, the backups are unrecoverable. They live only in 1Password."
+  if [ "$APPLY" -eq 1 ]; then
+    SET_ARGS=()
+    if [ -z "$HAVE_PW1" ]; then
+      PW1="$(rclone obscure "$(head -c 32 /dev/urandom | base64)")"
+      SET_ARGS+=("rclone_crypt_password=$PW1"); PW1=""
+    fi
+    if [ -z "$HAVE_PW2" ]; then
+      PW2="$(rclone obscure "$(head -c 32 /dev/urandom | base64)")"
+      SET_ARGS+=("rclone_crypt_password2=$PW2"); PW2=""
+    fi
+    op_set_fields "${SET_ARGS[@]}"
+    log "  stored ${#SET_ARGS[@]} crypt password field(s) into op item '$OP_ITEM'"
+  fi
+fi
+
+log "step 5/5: bucket lifecycle rule '$LIFECYCLE_RULE_ID' (expire after ${EXPIRE_DAYS}d for $PREFIX/)"
+EXISTING_RULES='[]'
+LC_ERR="$(mktemp)"; trap 'rm -f "$POLICY_TMP" "$LC_ERR"' EXIT
+if LC_JSON="$(aws s3api get-bucket-lifecycle-configuration --bucket "$BUCKET" --output json 2>"$LC_ERR")"; then
+  EXISTING_RULES="$(printf '%s' "$LC_JSON" | jq -c '.Rules // []')"
+else
+  if grep -q 'NoSuchLifecycleConfiguration' "$LC_ERR"; then
+    log "  bucket has no lifecycle configuration yet -- starting a fresh rule set"
+  else
+    die "  failed to read existing lifecycle config: $(tr -d '\n' < "$LC_ERR")"
+  fi
+fi
+
+EXISTING_IDS="$(printf '%s' "$EXISTING_RULES" | jq -r '.[].ID // .[].Id // empty' | paste -sd, - 2>/dev/null || true)"
+log "  existing rule Ids: ${EXISTING_IDS:-<none>}"
+
+MERGED="$(printf '%s' "$EXISTING_RULES" | jq -c \
+  --arg id "$LIFECYCLE_RULE_ID" \
+  --arg prefix "$PREFIX/" \
+  --argjson days "$EXPIRE_DAYS" '
+  [ .[] | select((.ID // .Id // "") != $id) ]
+  + [ {
+      ID: $id,
+      Filter: { Prefix: $prefix },
+      Status: "Enabled",
+      Expiration: { Days: $days }
+    } ]
+')"
+
+PRESERVED_IDS="$(printf '%s' "$EXISTING_RULES" | jq -r --arg id "$LIFECYCLE_RULE_ID" '.[] | (.ID // .Id // "") | select(. != $id and . != "")' | paste -sd, - 2>/dev/null || true)"
+log "  merged rule set:"
+log "    preserved (untouched): ${PRESERVED_IDS:-<none>}"
+log "    added/updated:         $LIFECYCLE_RULE_ID -> { Prefix: $PREFIX/, expire after ${EXPIRE_DAYS}d }"
+
+plan "put MERGED lifecycle configuration ($(printf '%s' "$MERGED" | jq 'length') rule(s) total) on '$BUCKET'"
+if [ "$APPLY" -eq 1 ]; then
+  LC_TMP="$(mktemp)"; trap 'rm -f "$POLICY_TMP" "$LC_ERR" "$LC_TMP"' EXIT
+  jq -n --argjson rules "$MERGED" '{ Rules: $rules }' > "$LC_TMP"
+  aws s3api put-bucket-lifecycle-configuration \
+    --bucket "$BUCKET" \
+    --lifecycle-configuration "file://$LC_TMP"
+  log "  applied merged lifecycle configuration to '$BUCKET'"
+fi
+
+echo
+if [ "$APPLY" -eq 1 ]; then
+  log "AWS + 1Password converged."
+else
+  log "DRY-RUN complete -- nothing changed. Re-run with --apply to converge."
+fi
+log "next: put the four values from op item '$OP_ITEM' into the domain's sops file, then switch the node"

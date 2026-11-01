@@ -1,0 +1,71 @@
+NODE="$(hostname -s 2>/dev/null || hostname)"; NODE="${NODE%%.*}"
+
+HA_DEVICE="backup_${NODE}"
+HA_DEVICE_NAME="${NODE} Backups"
+
+export HA_MQTT_DEVICE_MODEL="pve backups"
+
+discover() {  # <component> <tier> <object> <name> [extra ha-mqtt opts...]
+  local component="$1" tier="$2" object="$3" name="$4"; shift 4
+  local label
+  case "$tier" in
+    external) label="External";;
+    local)    label="Local";;
+    disk)     label="Disk";;
+    *)        label="$tier";;
+  esac
+  "$HA_MQTT" discover "$component" "$object" \
+    --name "$label $name" \
+    --device "${HA_DEVICE}_${tier}" \
+    --device-id "$HA_DEVICE" \
+    --device-name "$HA_DEVICE_NAME" \
+    --suggested-area "$AREA" \
+    "$@"
+}
+
+job_tier() {  # <tier> [--expire-after N]
+  local tier="$1"; shift
+  discover sensor        "$tier" last_run     "Last Run" --device-class timestamp --attrs "$@"
+  discover binary_sensor "$tier" status       "Status"   --device-class problem --attrs
+  discover sensor        "$tier" last_problem "Last Problem"
+  discover sensor        "$tier" duration     "Duration" \
+    --device-class duration --unit min --state-class measurement
+  discover sensor        "$tier" size         "Size" \
+    --device-class data_size --unit GiB --state-class measurement
+  discover sensor        "$tier" guests       "Guests" \
+    --state-class measurement --icon mdi:server
+}
+
+job_tier external --expire-after "$EXPIRE_AFTER"
+job_tier local
+
+discover sensor disk oldest         "Oldest" --device-class timestamp
+discover sensor disk restore_points "Restore Points" \
+  --state-class measurement --icon mdi:backup-restore
+
+echo "==> registered HA discovery for ${HA_DEVICE} (external, local, disk)"
+
+# Seed last_run from the newest archive so a fresh entity does not read as a 30 h miss.
+archives() {
+  find "$EXTERNAL_DUMP" -maxdepth 1 -type f -name 'vzdump-*' \
+    ! -name '*.log' ! -name '*.notes' "$@" 2>/dev/null
+}
+
+if [ -d "$EXTERNAL_DUMP" ]; then
+  count="$(archives | wc -l | tr -d ' ' || true)"
+  newest="$(archives -printf '%T@\n' | sort -rn | head -1 || true)"
+  oldest="$(archives -printf '%T@\n' | sort -n  | head -1 || true)"
+
+  "$HA_MQTT" state restore_points "${count:-0}" --device "${HA_DEVICE}_disk"
+  if [ -n "${newest:-}" ]; then
+    "$HA_MQTT" state last_run "$(date -u -d "@${newest%.*}" +%Y-%m-%dT%H:%M:%S+00:00)" \
+      --device "${HA_DEVICE}_external"
+    "$HA_MQTT" state oldest "$(date -u -d "@${oldest%.*}" +%Y-%m-%dT%H:%M:%S+00:00)" \
+      --device "${HA_DEVICE}_disk"
+    echo "==> seeded from ${count} archive(s) in ${EXTERNAL_DUMP}"
+  else
+    echo "==> ${EXTERNAL_DUMP} holds no archives -- last_run stays unavailable until the first run"
+  fi
+else
+  echo "==> ${EXTERNAL_DUMP} not present -- nothing to seed"
+fi

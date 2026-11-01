@@ -1,0 +1,39 @@
+NODE="$(hostname -s 2>/dev/null || hostname)"; NODE="${NODE%%.*}"
+HA_DEVICE="health_${NODE}"
+
+# Never fails the timer: a red monitoring unit is worse than a missed sample.
+pub() { "$HA_MQTT" "$@" --device "$HA_DEVICE" 2>/dev/null || true; }
+
+HANG_PATTERN='Hardware Unit Hang'
+hang_lines="$(journalctl -b 0 -k -p warning --no-pager -o short-iso 2>/dev/null \
+  | grep -F "$HANG_PATTERN" || true)"
+
+if [ -n "$hang_lines" ]; then
+  hangs="$(printf '%s\n' "$hang_lines" | wc -l | tr -d ' ')"
+else
+  hangs=0
+fi
+
+pub state nic_hangs "$hangs"
+
+if [ "$hangs" -gt 0 ]; then
+  last_raw="$(printf '%s\n' "$hang_lines" | tail -1 | awk '{print $1}')"
+  last_iso="$(printf '%s' "$last_raw" | sed -E 's/([+-][0-9]{2})([0-9]{2})$/\1:\2/')"
+  [ -n "$last_iso" ] && pub state nic_last_hang "$last_iso"
+
+  pub state nic_status ON \
+    --attr "count=$hangs" \
+    --attr "interface=$NIC" \
+    --attr "detail=e1000e TX unit hang detected this boot; the driver may or may not have recovered the ring"
+else
+  pub state nic_status OFF --attr "count=0" --attr "interface=$NIC"
+fi
+
+boot_epoch="$(awk '/^btime /{print $2}' /proc/stat 2>/dev/null)"
+if [ -n "${boot_epoch:-}" ]; then
+  pub state boot_time "$(date -u -d "@${boot_epoch}" +%Y-%m-%dT%H:%M:%S+00:00 2>/dev/null)"
+fi
+
+pub state heartbeat --now
+
+exit 0

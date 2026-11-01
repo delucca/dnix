@@ -1,0 +1,68 @@
+log()  { echo "[vzdump-hook-$NAME] $*"; }
+warn() { echo "[vzdump-hook-$NAME] WARN: $*" >&2; }
+
+crypt_configured() {
+  [ -f "$RCLONE_CONF" ] || return 1
+  "$RCLONE" --config "$RCLONE_CONF" listremotes 2>/dev/null | grep -qx "${CRYPT_REMOTE}:"
+}
+
+# Ships once a week and only from the external job; the guest agent handles the freeze.
+offsite_due() {  # <what>
+  if [ "${STOREID:-}" != "$OFFSITE_STOREID" ]; then
+    log "offsite $1 skipped (storeid=${STOREID:-none}, ships only from $OFFSITE_STOREID)"
+    return 1
+  fi
+  local today
+  today="$(date +%u)"
+  if [ "$today" != "$OFFSITE_WEEKDAY" ]; then
+    log "offsite $1 skipped (weekday=$today, ships only on $OFFSITE_WEEKDAY)"
+    return 1
+  fi
+  return 0
+}
+
+# <phase> [<mode> <vmid>]: $2 is the mode, $3 the vmid.
+PHASE="${1:-}"
+MODE="${2:-${MODE:-}}"
+VMID="${3:-${VMID:-}}"
+[ "${VMID:-}" = "$VMID_EXPECTED" ] || exit 0
+
+case "$PHASE" in
+  backup-end)
+    if [ -z "${TARGET:-}" ]; then
+      warn "backup-end with no TARGET set -- nothing to copy offsite"
+    elif ! offsite_due archive; then
+      :
+    elif crypt_configured; then
+      log "copying archive offsite (mode=${MODE:-?}): $TARGET -> ${CRYPT_REMOTE}:"
+      if "$RCLONE" --config "$RCLONE_CONF" copy "$TARGET" "${CRYPT_REMOTE}:" --transfers 4 --stats 30s; then
+        log "offsite archive copy complete"
+      else
+        warn "offsite archive copy failed (local backup is unaffected)"
+      fi
+    else
+      log "offsite skipped (${CRYPT_REMOTE} not configured)"
+    fi
+    ;;
+
+  log-end)
+    if [ -z "${LOGFILE:-}" ]; then
+      log "log-end with no LOGFILE set -- nothing to copy"
+    elif ! offsite_due log; then
+      :
+    elif crypt_configured; then
+      log "copying log offsite: $LOGFILE -> ${CRYPT_REMOTE}:"
+      if "$RCLONE" --config "$RCLONE_CONF" copy "$LOGFILE" "${CRYPT_REMOTE}:"; then
+        log "offsite log copy complete"
+      else
+        warn "offsite log copy failed (local backup is unaffected)"
+      fi
+    else
+      log "offsite log skipped (${CRYPT_REMOTE} not configured)"
+    fi
+    ;;
+
+  *) : ;;
+esac
+
+exit 0

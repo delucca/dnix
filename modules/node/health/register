@@ -1,0 +1,28 @@
+NODE="$(hostname -s 2>/dev/null || hostname)"; NODE="${NODE%%.*}"
+
+HA_DEVICE="health_${NODE}"
+HA_DEVICE_NAME="${NODE} Health"
+
+export HA_MQTT_DEVICE_MODEL="pve host health"
+
+discover() {  # <component> <object> <name> [extra ha-mqtt opts...]
+  local component="$1" object="$2" name="$3"; shift 3
+  "$HA_MQTT" discover "$component" "$object" \
+    --name "$name" \
+    --device "$HA_DEVICE" \
+    --device-id "$HA_DEVICE" \
+    --device-name "$HA_DEVICE_NAME" \
+    --suggested-area "$AREA" \
+    "$@"
+}
+
+discover sensor        nic_hangs     "NIC Hangs" \
+  --state-class total_increasing --icon mdi:lan-disconnect
+discover binary_sensor nic_status    "NIC Status"   --device-class problem --attrs
+discover sensor        nic_last_hang "NIC Last Hang" --device-class timestamp
+
+discover sensor boot_time "Boot Time" --device-class timestamp
+discover sensor heartbeat "Heartbeat" --device-class timestamp \
+  --expire-after "$EXPIRE_AFTER"
+
+echo "==> registered HA discovery for ${HA_DEVICE} (nic, host)"

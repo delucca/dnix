@@ -1,0 +1,14 @@
+log()  { echo "[pve-vzdump-hook] $*"; }
+warn() { echo "[pve-vzdump-hook] WARN: $*" >&2; }
+
+# vzdump aborts the job when its hook exits non-zero: every child is best-effort.
+for child in "${CHILDREN[@]}"; do
+  if [ ! -x "$child" ]; then
+    warn "$child missing or not executable -- skipping"
+    continue
+  fi
+  log "-> $child ${*:-(no args)}"
+  "$child" "$@" || warn "$child exited non-zero (ignored -- the backup must not abort)"
+done
+
+exit 0

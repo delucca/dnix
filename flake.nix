@@ -23,6 +23,11 @@
       node = ./modules/node;
       observability = ./modules/observability;
     };
+    packages.aarch64-darwin.setup-s3 = let pkgs = nixpkgs.legacyPackages.aarch64-darwin; in pkgs.writeShellApplication {
+      name = "setup-s3";
+      runtimeInputs = [ pkgs.awscli2 pkgs.rclone pkgs.jq ];
+      text = builtins.readFile ./modules/node/backup/setup-s3;
+    };
     checks.aarch64-darwin = nixpkgs.lib.mapAttrs' (name: nixpkgs.lib.nameValuePair "ai-${name}") (import ./modules/ai/tests { pkgs = nixpkgs.legacyPackages.aarch64-darwin; })
       // nixpkgs.lib.mapAttrs' (name: nixpkgs.lib.nameValuePair "lib-${name}") (import ./lib/tests { pkgs = nixpkgs.legacyPackages.aarch64-darwin; })
       // { observability = import ./modules/observability/test.nix { pkgs = nixpkgs.legacyPackages.aarch64-darwin; }; aws = import ./modules/aws/test.nix { pkgs = nixpkgs.legacyPackages.aarch64-darwin; }; };

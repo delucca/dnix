@@ -1,0 +1,146 @@
+STATE_DIR="${PVE_BACKUP_OBS_STATE_DIR:-/run/pve-backup-obs}"
+
+log()  { echo "[pve-backup-obs] $*"; }
+warn() { echo "[pve-backup-obs] WARN: $*" >&2; }
+
+NODE="$(hostname -s 2>/dev/null || hostname)"; NODE="${NODE%%.*}"
+HA_DEVICE="backup_${NODE}"
+
+pub() { "$HA_MQTT" "$@" >/dev/null 2>&1 || warn "publish failed: ha-mqtt $*"; }
+
+now_iso() { date -u +%Y-%m-%dT%H:%M:%S+00:00; }
+
+tier_for_storage() {
+  case "${1:-}" in
+    "$EXTERNAL_STORAGE") echo external;;
+    "$LOCAL_STORAGE")    echo local;;
+    *)                   echo "";;
+  esac
+}
+
+record_start() {
+  mkdir -p "$STATE_DIR" 2>/dev/null || { warn "cannot create $STATE_DIR"; return 0; }
+  printf 'START\t%s\n' "$(date +%s)" > "$STATE" 2>/dev/null \
+    || warn "cannot write $STATE"
+}
+
+record_guest() {  # <vmid> <outcome>
+  local vmid="$1" outcome="$2" bytes=0 name
+  # vzdump exports HOSTNAME as the guest's name; bash fills it with the node's when unset.
+  name="${HOSTNAME:-}"
+  [ -n "$name" ] && [ "$name" != "$NODE" ] || name="vm${vmid}"
+  if [ -n "${TARGET:-}" ] && [ -f "${TARGET:-}" ]; then
+    bytes="$(stat -c %s "$TARGET" 2>/dev/null || echo 0)"
+  fi
+  mkdir -p "$STATE_DIR" 2>/dev/null
+  printf 'GUEST\t%s\t%s\t%s\t%s\n' "$vmid" "$name" "$bytes" "$outcome" >> "$STATE" 2>/dev/null \
+    || warn "cannot append to $STATE"
+}
+
+summarize() {
+  awk -F'\t' '$1=="GUEST"' "$STATE" 2>/dev/null | jq -R -s -c '
+    (split("\n") | map(select(length > 0)) | map(split("\t"))) as $rows
+    | ($rows | map(select(.[4] == "ok")))   as $ok
+    | ($rows | map(select(.[4] != "ok")))   as $bad
+    | {
+        guests: ($ok | length),
+        failed: ($bad | map(.[2])),
+        bytes:  ($ok | map(.[3] | tonumber) | add // 0),
+        breakdown: (
+          $rows
+          | map({ (.[2]): (if .[4] == "ok"
+                           then ((.[3] | tonumber) / 1073741824 * 100 | round / 100)
+                           else "failed" end) })
+          | add // {}
+        )
+      }' 2>/dev/null
+}
+
+publish_job() {  # <phase>
+  local phase="$1" sum guests failed bytes size_gib start dur attrs
+
+  sum="$(summarize)"
+  [ -n "$sum" ] || sum='{"guests":0,"failed":[],"bytes":0,"breakdown":{}}'
+
+  guests="$(jq -r '.guests' <<<"$sum" 2>/dev/null || echo 0)"
+  failed="$(jq -r '.failed | join(", ")' <<<"$sum" 2>/dev/null || echo "")"
+  bytes="$(jq -r '.bytes' <<<"$sum" 2>/dev/null || echo 0)"
+  size_gib="$(awk -v b="$bytes" 'BEGIN { printf "%.2f", b / 1073741824 }')"
+
+  attrs="$(jq -c --arg node "$NODE" --arg storage "${STOREID:-}" --arg tier "$TIER" \
+    '{node: $node, storage: $storage, tier: $tier, guests: .breakdown, failed: .failed}' \
+    <<<"$sum" 2>/dev/null)"
+  [ -n "$attrs" ] || attrs='{}'
+
+  # last_run only on job-end: an aborted job must not feed the dead man's switch.
+  if [ "$phase" = job-end ]; then
+    pub state last_run "$(now_iso)" --device "$DEVICE" --attrs-json "$attrs"
+    start="$(awk -F'\t' '$1=="START" { print $2 }' "$STATE" 2>/dev/null)"
+    if [ -n "${start:-}" ]; then
+      dur="$(awk -v s="$start" -v n="$(date +%s)" 'BEGIN { printf "%.2f", (n - s) / 60 }')"
+      pub state duration "$dur" --device "$DEVICE"
+    fi
+    pub state size "$size_gib" --device "$DEVICE"
+    pub state guests "$guests" --device "$DEVICE"
+  fi
+
+  local problem=""
+  [ "$phase" = job-abort ] && problem="job aborted before it finished"
+  if [ -n "$failed" ]; then
+    problem="${problem:+$problem; }failed: ${failed}"
+  fi
+
+  # last_problem before status: the alert fires on the status edge and reads last_problem.
+  if [ -n "$problem" ]; then
+    pub state last_problem "${problem:0:255}" --device "$DEVICE"
+    pub state status ON --device "$DEVICE" --attr "problems=${problem:0:255}"
+  else
+    pub state last_problem none --device "$DEVICE"
+    pub state status OFF --device "$DEVICE" --attr problems=none
+  fi
+
+  log "published ${DEVICE}: guests=${guests} size=${size_gib}GiB problem='${problem:-none}'"
+}
+
+publish_disk() {
+  local dir="${DUMPDIR:-}" count oldest
+  [ -n "$dir" ] && [ -d "$dir" ] || { warn "no DUMPDIR to inspect"; return 0; }
+
+  count="$(find "$dir" -maxdepth 1 -type f -name 'vzdump-*' \
+    ! -name '*.log' ! -name '*.notes' 2>/dev/null | wc -l | tr -d ' ')"
+  oldest="$(find "$dir" -maxdepth 1 -type f -name 'vzdump-*' \
+    ! -name '*.log' ! -name '*.notes' -printf '%T@\n' 2>/dev/null | sort -n | head -1)"
+
+  pub state restore_points "${count:-0}" --device "${HA_DEVICE}_disk"
+  if [ -n "${oldest:-}" ]; then
+    pub state oldest "$(date -u -d "@${oldest%.*}" +%Y-%m-%dT%H:%M:%S+00:00)" \
+      --device "${HA_DEVICE}_disk"
+  fi
+}
+
+main() {
+  # <phase> [<mode> <vmid>]: $2 is the mode, $3 the vmid.
+  local phase="${1:-}"
+  local vmid="${3:-${VMID:-}}"
+
+  TIER="$(tier_for_storage "${STOREID:-}")"
+  [ -n "$TIER" ] || return 0
+
+  DEVICE="${HA_DEVICE}_${TIER}"
+  STATE="${STATE_DIR}/${TIER}.state"
+
+  case "$phase" in
+    job-start)     record_start ;;
+    backup-end)    record_guest "${vmid:-?}" ok ;;
+    backup-abort)  record_guest "${vmid:-?}" fail ;;
+    job-end|job-abort)
+      publish_job "$phase"
+      [ "$TIER" = external ] && publish_disk
+      rm -f "$STATE" 2>/dev/null
+      ;;
+    *) : ;;
+  esac
+}
+
+main "$@" || warn "hook body failed (backup unaffected)"
+exit 0

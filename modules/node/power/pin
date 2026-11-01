@@ -1,0 +1,49 @@
+log() { echo "pve-power-pin: $*"; }
+
+# Runs after powertop --auto-tune; never fails, a missing device is logged and skipped.
+pin_on() {  # <label> <power dir>
+  local label="$1" dir="$2"
+  [ -n "$dir" ] && [ -w "$dir/control" ] || { log "$label: no writable control file, skipped"; return 0; }
+  if [ "$(cat "$dir/control" 2>/dev/null)" = "on" ]; then
+    return 0
+  fi
+  if echo on > "$dir/control" 2>/dev/null; then
+    log "$label: runtime PM pinned on"
+  else
+    log "$label: could not write $dir/control"
+  fi
+}
+
+if [ -n "$NIC" ] && [ -e "/sys/class/net/$NIC/device/power/control" ]; then
+  pin_on "$NIC" "/sys/class/net/$NIC/device/power"
+elif [ -n "$NIC" ]; then
+  log "$NIC: interface not present, skipped"
+fi
+
+if [ -n "$BACKUP_UUID" ] && [ -e "/dev/disk/by-uuid/$BACKUP_UUID" ]; then
+  part="$(readlink -f "/dev/disk/by-uuid/$BACKUP_UUID" 2>/dev/null || true)"
+  node="$(basename "${part:-}")"
+  syspath="$(readlink -f "/sys/class/block/$node" 2>/dev/null || true)"
+
+  usbdev=""
+  while [ -n "$syspath" ] && [ "$syspath" != "/" ] && [ "$syspath" != "/sys" ]; do
+    if [ -e "$syspath/idVendor" ] && [ -e "$syspath/power/control" ]; then
+      usbdev="$syspath"
+      break
+    fi
+    syspath="$(dirname "$syspath")"
+  done
+
+  if [ -n "$usbdev" ]; then
+    pin_on "backup disk ($(basename "$usbdev"))" "$usbdev/power"
+    if [ -w "$usbdev/power/autosuspend_delay_ms" ]; then
+      echo -1 > "$usbdev/power/autosuspend_delay_ms" 2>/dev/null || true
+    fi
+  else
+    log "backup disk: no USB parent found for $node, skipped"
+  fi
+elif [ -n "$BACKUP_UUID" ]; then
+  log "backup disk: UUID $BACKUP_UUID not present, skipped"
+fi
+
+exit 0
