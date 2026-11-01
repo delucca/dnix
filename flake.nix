@@ -28,7 +28,7 @@
       runtimeInputs = [ pkgs.awscli2 pkgs.rclone pkgs.jq ];
       text = builtins.readFile ./modules/node/backup/setup-s3;
     };
-    checks.aarch64-darwin = nixpkgs.lib.mapAttrs' (name: nixpkgs.lib.nameValuePair "ai-${name}") (import ./modules/ai/tests { pkgs = nixpkgs.legacyPackages.aarch64-darwin; })
+    checks.aarch64-darwin = self.lib.testsIn { pkgs = nixpkgs.legacyPackages.aarch64-darwin; dir = ./modules; }
       // nixpkgs.lib.mapAttrs' (name: nixpkgs.lib.nameValuePair "lib-${name}") (import ./lib/tests { pkgs = nixpkgs.legacyPackages.aarch64-darwin; })
       // { observability = import ./modules/observability/test.nix { pkgs = nixpkgs.legacyPackages.aarch64-darwin; }; aws = import ./modules/aws/test.nix { pkgs = nixpkgs.legacyPackages.aarch64-darwin; }; };
   };

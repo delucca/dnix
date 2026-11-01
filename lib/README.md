@@ -1,6 +1,6 @@
 # lib
 
-Functions that turn a flake's hosts into the scripts that check, build, switch and bootstrap them. Each returns an attrset of derivations named `<verb>-<host>`; a flake maps them to `apps` and adds them to `checks`, so a broken script fails `nix flake check`. Every script runs from the flake's root.
+Functions that turn a flake's hosts into the scripts that check, build, switch and bootstrap them, and its `tests/` folders into checks. Each script function returns an attrset of derivations named `<verb>-<host>`; a flake maps them to `apps` and adds them to `checks`, so a broken script fails `nix flake check`. Every script runs from the flake's root.
 
 ```nix
 scripts = dnix.lib.darwinScripts { inherit self pkgs; }
@@ -12,6 +12,20 @@ scripts = dnix.lib.darwinScripts { inherit self pkgs; }
   };
 apps.aarch64-darwin = builtins.mapAttrs (_: drv: { type = "app"; program = lib.getExe drv; }) scripts;
 ```
+
+## testsIn
+
+For every `<dir>/<name>/tests/default.nix`, the checks named `<name>-<test>`. Each file is a function that returns an attrset of derivations. It gets `pkgs`, and each attribute of `args` it names in its arguments.
+
+```nix
+checks.aarch64-darwin = dnix.lib.testsIn { inherit pkgs; dir = ./modules; args = { inherit dnix; }; };
+```
+
+| Argument | Default | What it is |
+|---|---|---|
+| `pkgs` | required | Passed to every test file. |
+| `dir` | required | The folder whose subfolders are scanned. |
+| `args` | `{ }` | Further arguments, passed only to the test files that name them. |
 
 ## darwinScripts
 

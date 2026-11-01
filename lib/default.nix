@@ -7,6 +7,16 @@ let
   defaultBootstrap = host: "hosts/${host}/bootstrap";
 in
 {
+  testsIn = { pkgs, dir, args ? { } }:
+    pkgs.lib.concatMapAttrs (name: _:
+      let
+        p = dir + "/${name}/tests";
+        tests = import p;
+      in pkgs.lib.optionalAttrs (builtins.pathExists (p + "/default.nix"))
+        (pkgs.lib.mapAttrs' (test: pkgs.lib.nameValuePair "${name}-${test}")
+          (tests (builtins.intersectAttrs (builtins.functionArgs tests) ({ inherit pkgs; } // args))))
+    ) (builtins.readDir dir);
+
   darwinScripts = { self, pkgs, bootstrap ? defaultBootstrap }:
     pkgs.lib.concatMapAttrs (host: _: {
       "check-${host}" = script pkgs "check-${host}" [ ] "nix eval --raw .#darwinConfigurations.${host}.system";
