@@ -1,7 +1,7 @@
 { config, lib, ... }:
 
 {
-  options.dnix.nix.enable = lib.mkEnableOption "store garbage collection, optimisation and free-space limits";
+  options.dnix.nix.enable = lib.mkEnableOption "flakes, store garbage collection, optimisation and free-space limits";
 
   config = lib.mkIf config.dnix.nix.enable {
     nix.gc = {
@@ -13,6 +13,7 @@
     nix.optimise.automatic = lib.mkDefault true;
 
     nix.settings = {
+      experimental-features = lib.mkDefault [ "nix-command" "flakes" ];
       min-free = lib.mkDefault (10 * 1024 * 1024 * 1024);
       max-free = lib.mkDefault (30 * 1024 * 1024 * 1024);
     };
