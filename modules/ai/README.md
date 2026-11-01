@@ -57,7 +57,8 @@ A skill script finds `lib/` by resolving its own path, so a consumer's skills si
 | `dnix.ai.dsession.wrappers` | `[ ]` | Commands that run a client through a prefix; see dsession's README. |
 | `dnix.ai.dsession.script` | read only | `dsession.py` as a plain executable file, for a machine that does not run this module. |
 | `dnix.ai.opAgent.enable` | `false` | Installs `op-agent`, which runs `op` as a read-only service account, and adds the SECRETS instruction telling agents to try it before `op`. `op` is unfree, so the consumer allows `_1password-cli`. |
-| `dnix.ai.opAgent.tokenFile` | `null` | The file holding the service account token, read at each call. Required when enabled. |
+| `dnix.ai.opAgent.tokenFile` | `null` | The file holding the service account token, read at each call. Set this or `keychain`. |
+| `dnix.ai.opAgent.keychain` | `null` | macOS only: `{ service = "op-agent"; ref = "op://Private/op-agent/credential"; }` keeps the token in the login keychain item `service`, read at each call. When the item is missing, activation fills it from `ref` with a prompted `op read`. |
 | `dnix.ai.opAgent.vault` | `"Agents"` | The one vault the service account can read, named in the instruction. |
 
 ## Skill descriptions are a shared budget
