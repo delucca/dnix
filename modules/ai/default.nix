@@ -56,6 +56,9 @@ let
 
   secretsFile = name: ./harnesses/shared/skills + "/${name}/secrets.nix";
   readsSecrets = name: builtins.pathExists (secretsFile name);
+
+  requiresFile = name: ./harnesses/shared/skills + "/${name}/requires.nix";
+  required = name: let f = requiresFile name; in if builtins.pathExists f then import f else [ ];
 in
 {
   imports = [ ./dsession ./op-agent ./harnesses/claude ./harnesses/codex ./harnesses/antigravity ];
@@ -151,6 +154,10 @@ in
       assertion = cfg.secrets.readCommand != null;
       message = "dnix.ai: '${name}' reads secrets; set dnix.ai.secrets.readCommand or enable dnix.ai.opAgent.";
     }) (lib.filterAttrs (name: _: readsSecrets name) (enabled cfg.skills))
+    ++ lib.concatLists (lib.mapAttrsToList (name: e: map (key: {
+      assertion = e.settings ? ${key};
+      message = "dnix.ai: '${name}' needs dnix.ai.skills.${name}.settings.${key}.";
+    }) (required name)) (enabled cfg.skills))
     ++ lib.mapAttrsToList (name: s: {
       assertion = s.source != null || s.text != "";
       message = "dnix.ai: instruction '${name}' has no source or text; a typo in its name?";
@@ -159,8 +166,9 @@ in
     dnix.ai.skills = lib.genAttrs (entries "directory" ./harnesses/shared/skills) (name: {
       source = lib.mkDefault (if cfg.devTree == null then "${shared}/skills/${name}" else "${cfg.devTree}/skills/${name}");
       packages = skillPackages name;
-    } // lib.optionalAttrs (readsSecrets name) {
+    } // lib.optionalAttrs (readsSecrets name || required name != [ ]) {
       enable = lib.mkDefault false;
+    } // lib.optionalAttrs (readsSecrets name) {
       settings.secrets = lib.mapAttrs (_: lib.mkDefault) (import (secretsFile name) { inherit (cfg.opAgent) vault; });
     });
 
