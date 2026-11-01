@@ -168,7 +168,16 @@ in
       source = lib.mkDefault "${shared}/agents/${f}";
     }) (lib.filter (lib.hasSuffix ".md") (entries "regular" ./harnesses/shared/agents)));
 
-    dnix.ai.instructions = lib.listToAttrs (lib.concatMap sectionsOf ([ ./harnesses/shared/instructions ] ++ cfg.instructionDirs));
+    dnix.ai.instructions = lib.mkMerge [
+      (lib.listToAttrs (lib.concatMap sectionsOf ([ ./harnesses/shared/instructions ] ++ cfg.instructionDirs)))
+      {
+        dependency-sources = {
+          enable = lib.mkDefault cfg.skills.use-context7.enable;
+          order = 55;
+          source = ./dependency-sources.md;
+        };
+      }
+    ];
     dnix.ai.instructionsText = lib.concatMapStrings (s: s.text) (lib.sortOn (s: s.order) (lib.attrValues (enabled cfg.instructions)));
 
     dnix.ai.resolved = {

@@ -6,6 +6,8 @@ The agent stack for Claude Code, Codex and Antigravity CLI (agy): one set of ski
 
 ```
 default.nix        the options, the shipped skills and agents, ~/.config/ai
+dependency-sources.md
+                   the LIBRARY DOCS instruction, included while use-context7 is enabled
 darwin.nix         darwinModules.ai: installs managed-settings.json and /etc/codex/managed_config.toml,
                    reading the primary user's dnix.ai options
 harnesses/
@@ -27,7 +29,7 @@ Everything enters through options, and the harnesses render it. A consumer never
 - `dnix.ai.skills.<name>` and `dnix.ai.agents.<name>` take `{ enable, source, settings, packages }`. The shipped ones set `source` as a default, so a consumer overrides one by name, adds its own, or turns one off with `enable = false`. An entry with no source fails an assertion, which catches a misspelled name.
 - `settings` renders to `~/.config/ai/settings/<name>.json`. `wrap-up` reads `ownRemotes` and `publishedTrailers` there, `review` reads `harnessWrapper` and `passEnvPrefixes`.
 - A shipped skill with a `secrets.nix` reads secrets, so it is off until the consumer enables it, and enabling it needs `dnix.ai.secrets.readCommand`. The file returns the default reference per key, given the op-agent vault, as `settings.secrets`; a consumer overrides one key by name. `lib/credential.py` runs the command on the reference at use time. `use-home-assistant` also needs `settings.url`.
-- `dnix.ai.instructions` and `dnix.ai.instructionDirs` take `NN-name.md` sections, merged with `harnesses/shared/instructions/` by number, the same shape as `dnix.developer`. A section is keyed by its name without the number, so a consumer turns a shipped one off with `dnix.ai.instructions.<name>.enable = false`; an entry with neither source nor text fails an assertion.
+- `dnix.ai.instructions` and `dnix.ai.instructionDirs` take `NN-name.md` sections, merged with `harnesses/shared/instructions/` by number, the same shape as `dnix.developer`. A section is keyed by its name without the number, so a consumer turns a shipped one off with `dnix.ai.instructions.<name>.enable = false`; an entry with neither source nor text fails an assertion. `dependency-sources` follows `use-context7`'s `enable` unless set.
 - `dnix.ai.claude.settings`, `dnix.ai.codex.settings`, `dnix.ai.codex.hooks`, `dnix.ai.antigravity.settings` and `dnix.ai.antigravity.hooks` take harness policy and hooks; lists from several modules are concatenated.
 
 A skill script finds `lib/` by resolving its own path, so a consumer's skills sit in one store tree of their own and reach the shared libraries at `~/.config/ai/common/lib`. A shipped skill that needs a package carries a `packages.nix` returning a list, installed only while the skill is enabled. `programs.bilbo` comes from bilbo's own module: the shared instructions and the `docs-researcher` agent assume it is installed.
