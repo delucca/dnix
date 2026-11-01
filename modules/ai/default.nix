@@ -84,13 +84,21 @@ in
     instructions = lib.mkOption {
       type = lib.types.attrsOf (lib.types.submodule ({ config, ... }: {
         options = {
+          enable = lib.mkOption {
+            type = lib.types.bool;
+            default = true;
+            description = "Whether to include this section.";
+          };
           order = lib.mkOption { type = lib.types.int; };
           source = lib.mkOption { type = lib.types.nullOr lib.types.path; default = null; };
-          text = lib.mkOption { type = lib.types.str; default = builtins.readFile config.source; };
+          text = lib.mkOption {
+            type = lib.types.str;
+            default = lib.optionalString (config.source != null) (builtins.readFile config.source);
+          };
         };
       }));
       default = { };
-      description = "The global instructions every harness loads, concatenated by order.";
+      description = "The global instructions every harness loads, concatenated by order. A consumer turns a shipped section off by name with enable = false.";
     };
 
     instructionsText = lib.mkOption {
@@ -142,7 +150,11 @@ in
     ++ lib.mapAttrsToList (name: _: {
       assertion = cfg.secrets.readCommand != null;
       message = "dnix.ai: '${name}' reads secrets; set dnix.ai.secrets.readCommand or enable dnix.ai.opAgent.";
-    }) (lib.filterAttrs (name: _: readsSecrets name) (enabled cfg.skills));
+    }) (lib.filterAttrs (name: _: readsSecrets name) (enabled cfg.skills))
+    ++ lib.mapAttrsToList (name: s: {
+      assertion = s.source != null || s.text != "";
+      message = "dnix.ai: instruction '${name}' has no source or text; a typo in its name?";
+    }) cfg.instructions;
 
     dnix.ai.skills = lib.genAttrs (entries "directory" ./harnesses/shared/skills) (name: {
       source = lib.mkDefault (if cfg.devTree == null then "${shared}/skills/${name}" else "${cfg.devTree}/skills/${name}");
@@ -157,7 +169,7 @@ in
     }) (lib.filter (lib.hasSuffix ".md") (entries "regular" ./harnesses/shared/agents)));
 
     dnix.ai.instructions = lib.listToAttrs (lib.concatMap sectionsOf ([ ./harnesses/shared/instructions ] ++ cfg.instructionDirs));
-    dnix.ai.instructionsText = lib.concatMapStrings (s: s.text) (lib.sortOn (s: s.order) (lib.attrValues cfg.instructions));
+    dnix.ai.instructionsText = lib.concatMapStrings (s: s.text) (lib.sortOn (s: s.order) (lib.attrValues (enabled cfg.instructions)));
 
     dnix.ai.resolved = {
       skills = lib.mapAttrs (_: e: link e.source) (enabled cfg.skills);
