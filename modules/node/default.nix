@@ -86,7 +86,7 @@ let
   registrar = after: package: {
     wantedBy = [ "multi-user.target" ];
     wants = [ "network-online.target" ];
-    after = [ "network-online.target" "sops-install-secrets.service" ] ++ after;
+    after = [ "network-online.target" ] ++ after;
     path = [ "/usr" ];
     restartTriggers = [ package ];
     serviceConfig = {
@@ -97,6 +97,8 @@ let
   };
 in
 {
+  imports = [ ../secrets ];
+
   options.dnix.node = {
     ssh = mkOption { type = types.str; };
     sudoPasswordRef = mkOption { type = types.str; };
@@ -173,14 +175,6 @@ in
     {
       nixpkgs.hostPlatform = "x86_64-linux";
       services.userborn.enable = false;
-      # userborn off would flip sops-nix onto NixOS activation scripts, which
-      # system-manager stubs out, so secrets would silently never install
-      # (numtide/system-manager#533; #534 pending). This is the only valid
-      # value here regardless of userborn.
-      sops.useSystemdActivation = true;
-      # No openssh.hostKeys under system-manager, so sops-nix's default key
-      # discovery finds nothing; every node decrypts with its own host key.
-      sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
     }
 
     (mkIf (disk != null) {
@@ -209,7 +203,7 @@ in
       systemd.services.pve-health-register = registrar [ ] healthRegister;
       systemd.services.pve-health-report = {
         wants = [ "network-online.target" ];
-        after = [ "network-online.target" "sops-install-secrets.service" ];
+        after = [ "network-online.target" ];
         path = [ "/usr" ];
         serviceConfig = {
           Type = "oneshot";

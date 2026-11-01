@@ -36,7 +36,4 @@ for _ in $(seq 60); do
   sleep 5
 done
 [ -n "$address" ] || { echo "vm $vmid has no address: the guest agent or dhcp never answered" >&2; exit 1; }
-key=$(node "qm guest exec $vmid -- /run/current-system/sw/bin/cat /etc/ssh/ssh_host_ed25519_key.pub" |
-  jq -r '."out-data"')
-echo "VM $vmid up at $address, age recipient $(printf '%s\n' "$key" | ssh-to-age)"
-echo "add the recipient to the $host rule in .sops.yaml, then sops updatekeys $secrets, then: nix run .#switch-$host -- root@$address"
+echo "VM $vmid up at $address, next: nix run .#switch-$host -- root@$address"

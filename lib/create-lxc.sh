@@ -20,6 +20,4 @@ for device in "${devices[@]}"; do
 done
 [[ $(node "pct status $vmid") == *running* ]] || { node "pct start $vmid"; sleep 5; }
 address=$(node "pct exec $vmid -- /run/current-system/sw/bin/ip -4 -o addr show eth0" | awk '{print $4}' | cut -d/ -f1)
-key=$(node "pct exec $vmid -- /run/current-system/sw/bin/cat /etc/ssh/ssh_host_ed25519_key.pub")
-echo "CT $vmid up at $address, age recipient $(printf '%s\n' "$key" | ssh-to-age)"
-echo "add the recipient to .sops.yaml, sops updatekeys $secrets, then: nix run .#switch-$host -- root@$address"
+echo "CT $vmid up at $address, next: nix run .#switch-$host -- root@$address"

@@ -4,7 +4,7 @@ let
   cfg = config.dnix.guest;
 in
 {
-  imports = [ ./lxc.nix ./vm.nix ];
+  imports = [ ../secrets ./lxc.nix ./vm.nix ];
 
   options.dnix.guest = {
     platform = lib.mkOption {
@@ -85,7 +85,6 @@ in
     };
     security.sudo.wheelNeedsPassword = false;
 
-    sops.age.sshKeyPaths = [ "/etc/ssh/ssh_host_ed25519_key" ];
 
     system.stateVersion = "26.05";
   };

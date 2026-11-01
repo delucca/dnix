@@ -22,6 +22,7 @@
       guest = ./modules/guest;
       node = ./modules/node;
       observability = ./modules/observability;
+      secrets = ./modules/secrets;
     };
     packages.aarch64-darwin.setup-s3 = let pkgs = nixpkgs.legacyPackages.aarch64-darwin; in pkgs.writeShellApplication {
       name = "setup-s3";

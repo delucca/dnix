@@ -1,6 +1,6 @@
 # node
 
-The system-manager base of a Proxmox node: the `dnix.node` block the deploy scripts reach the node through, sops-nix set up to work under system-manager, and opt-in node services: a vzdump hook chain with Home Assistant sensors and offsite copies, host health sensors, and power tuning. A flake takes it as `dnix.nixosModules.node` in a `system-manager.lib.makeSystemConfig`, next to sops-nix's NixOS module, and next to `dnix.nixosModules.observability` when a service publishes to Home Assistant. It turns userborn off, so it is not for a NixOS host.
+The system-manager base of a Proxmox node: the `dnix.node` block the deploy scripts reach the node through, [the secrets module](../secrets/README.md), and opt-in node services: a vzdump hook chain with Home Assistant sensors and offsite copies, host health sensors, and power tuning. A flake takes it as `dnix.nixosModules.node` in a `system-manager.lib.makeSystemConfig`, next to `dnix.nixosModules.observability` when a service publishes to Home Assistant. It turns userborn off, so it is not for a NixOS host.
 
 ## Files
 
@@ -49,7 +49,7 @@ dnix.node = {
     offsite.ha = {
       vmid = 100;
       remote = "ha-crypt";
-      rcloneConfig = config.sops.templates."rclone-ha.conf".path;
+      rcloneConfig = config.dnix.secrets.files."rclone-ha.conf".path;
       weekday = 6;
     };
   };
@@ -64,7 +64,7 @@ Every vzdump job that should be watched names `/etc/vzdump-hook` as its hook scr
 
 `obs-hook` records the job start, each guest's outcome and archive size, and publishes the summary at `job-end` or `job-abort`. Only `job-end` sets `last_run`, so an aborted job trips the dead man's switch. `obs-register` creates the entities at boot and seeds `last_run` from the newest archive on the disk.
 
-An `offsite.<name>` child copies at `backup-end` and `log-end`. The rclone config is the caller's: a crypt remote over S3 fits, with its keys in sops.
+An `offsite.<name>` child copies at `backup-end` and `log-end`. The rclone config is the caller's: a crypt remote over S3 fits, as a `dnix.secrets` file whose template holds the four references `setup-s3` stored.
 
 `setup-s3` converges the cloud side of one offsite domain from the laptop: a scoped IAM user, its inline policy and access key, two crypt passwords stored in a 1Password item, and a bucket lifecycle rule merged into the existing ones. It is dry-run unless `--apply`.
 

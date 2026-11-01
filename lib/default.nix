@@ -36,8 +36,8 @@ in
     , pkgs
     , builder
     , readSecret
+    , renderSecret ? null
     , bootstrap ? defaultBootstrap
-    , guestSecrets ? host: node: "hosts/${node}/guests/secrets/${host}.yaml"
     , template ? "nixos-dnix.tar.xz"
     , vmImage ? "nixos-dnix.qcow2"
     , vmStaging ? "/var/lib/vz/dnix"
@@ -47,6 +47,16 @@ in
     let
       lib = pkgs.lib;
       node = name: self.systemConfigs.${name}.config.dnix.node;
+
+      pushSecrets = host: secrets: preamble:
+        let files = lib.mapAttrs (_: f: { inherit (f) template owner group mode path; }) secrets.files;
+        in lib.optionalString (files != { }) (
+          assert lib.assertMsg (renderSecret != null) "estateScripts: ${host} declares dnix.secrets.files, so pass renderSecret.";
+          preamble + ''
+            secrets_dir=${lib.escapeShellArg secrets.dir}
+            secrets_json=${pkgs.writeText "${host}-secrets.json" (builtins.toJSON files)}
+            render() { ${renderSecret}; }
+          '' + builtins.readFile ./push-secrets.sh);
 
       remoteBuild = attr: ''
         drv=$(nix eval --raw .#${attr}.drvPath)
@@ -74,14 +84,19 @@ in
         in {
         "check-${host}" = script pkgs "check-${host}" [ ] "nix eval --raw .#nixosConfigurations.${host}.config.system.build.toplevel.drvPath";
         "build-${host}" = script pkgs "build-${host}" [ ] (remoteBuild "nixosConfigurations.${host}.config.system.build.toplevel" + ''echo "$out"'');
-        "switch-${host}" = script pkgs "switch-${host}" [ pkgs.nixos-rebuild ]
-          ''nixos-rebuild switch --flake .#${host} --build-host ${builder} --target-host "''${1:-root@${host}}"'';
-        "bootstrap-${host}" = script pkgs "bootstrap-${host}" [ pkgs.ssh-to-age pkgs.jq ] (''
+        "switch-${host}" = script pkgs "switch-${host}" [ pkgs.nixos-rebuild pkgs.jq ] (''
+          target="''${1:-root@${host}}"
+        '' + pushSecrets host cfg.config.dnix.secrets ''
+          ssh_target=$target
+          remote() { ssh "$ssh_target" "$1"; }
+        '' + ''
+          nixos-rebuild switch --flake .#${host} --build-host ${builder} --target-host "$target"
+        '');
+        "bootstrap-${host}" = script pkgs "bootstrap-${host}" [ pkgs.jq ] (''
           read_secret() { ${readSecret} "$1"; }
           host=${host}
           node_ssh=${n.ssh}
           sudo_ref=${lib.escapeShellArg n.sudoPasswordRef}
-          secrets=${lib.escapeShellArg (guestSecrets host g.node)}
           vmid=${toString g.vmid}
           cores=${toString g.cores}
           memory=${toString g.memory}
@@ -94,10 +109,14 @@ in
       systemScripts = lib.concatMapAttrs (host: cfg: let n = cfg.config.dnix.node; in {
         "check-${host}" = script pkgs "check-${host}" [ ] "nix eval --raw .#systemConfigs.${host}.drvPath";
         "build-${host}" = script pkgs "build-${host}" [ ] (remoteBuild "systemConfigs.${host}" + ''echo "$out"'');
-        "switch-${host}" = script pkgs "switch-${host}" [ ] (remoteBuild "systemConfigs.${host}" + ''
+        "switch-${host}" = script pkgs "switch-${host}" [ pkgs.jq ] (remoteBuild "systemConfigs.${host}" + ''
           nix copy --no-check-sigs --from ssh://${builder} --to 'ssh://${n.ssh}?remote-program=/nix/var/nix/profiles/default/bin/nix-store' "$out"
           pw=$(${readSecret} ${lib.escapeShellArg n.sudoPasswordRef})
           node() { printf '%s\n' "$pw" | ssh ${n.ssh} "sudo -S -p ''' bash -c $(printf %q "$1")"; }
+        '' + pushSecrets host cfg.config.dnix.secrets ''
+          ssh_target=${n.ssh}
+          remote() { node "$1"; }
+        '' + ''
           node "$out/bin/register-profile && $out/bin/activate"
           if ssh ${n.ssh} test -f /run/reboot-required; then echo "reboot required on ${n.ssh}"; fi
         '');

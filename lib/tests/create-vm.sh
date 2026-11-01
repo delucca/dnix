@@ -39,7 +39,6 @@ read_secret() { echo fake-sudo-password; }
 host=testvm
 node_ssh=pve
 sudo_ref=op://Vault/fake/password
-secrets=hosts/pve/guests/secrets/testvm.yaml
 vmid=199
 cores=16
 memory=57344
