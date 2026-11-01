@@ -53,6 +53,9 @@ let
   skillPackages = name:
     let f = ./harnesses/shared/skills + "/${name}/packages.nix";
     in lib.optionals (builtins.pathExists f) (import f { inherit pkgs; });
+
+  secretsFile = name: ./harnesses/shared/skills + "/${name}/secrets.nix";
+  readsSecrets = name: builtins.pathExists (secretsFile name);
 in
 {
   imports = [ ./dsession ./op-agent ./harnesses/claude ./harnesses/codex ./harnesses/antigravity ];
@@ -102,6 +105,14 @@ in
       description = "Extra lens briefs for the review skill, linked under ~/.config/ai/review-lenses/.";
     };
 
+    secrets.readCommand = lib.mkOption {
+      type = lib.types.nullOr (lib.types.listOf lib.types.str);
+      default = if cfg.opAgent.enable then [ "op-agent" "read" ] else null;
+      defaultText = lib.literalExpression ''if dnix.ai.opAgent.enable then [ "op-agent" "read" ] else null'';
+      example = [ "op" "read" ];
+      description = "The command a skill runs, with a secret's reference appended, to read it at use time. A skill that reads secrets needs it set.";
+    };
+
     skipPermissions.enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -127,11 +138,18 @@ in
     assertions = lib.mapAttrsToList (name: e: {
       assertion = !e.enable || e.source != null;
       message = "dnix.ai: '${name}' has no source; a typo in a skill or agent name?";
-    }) (cfg.skills // cfg.agents);
+    }) (cfg.skills // cfg.agents)
+    ++ lib.mapAttrsToList (name: _: {
+      assertion = cfg.secrets.readCommand != null;
+      message = "dnix.ai: '${name}' reads secrets; set dnix.ai.secrets.readCommand or enable dnix.ai.opAgent.";
+    }) (lib.filterAttrs (name: _: readsSecrets name) (enabled cfg.skills));
 
     dnix.ai.skills = lib.genAttrs (entries "directory" ./harnesses/shared/skills) (name: {
       source = lib.mkDefault (if cfg.devTree == null then "${shared}/skills/${name}" else "${cfg.devTree}/skills/${name}");
       packages = skillPackages name;
+    } // lib.optionalAttrs (readsSecrets name) {
+      enable = lib.mkDefault false;
+      settings.secrets = lib.mapAttrs (_: lib.mkDefault) (import (secretsFile name) { inherit (cfg.opAgent) vault; });
     });
 
     dnix.ai.agents = lib.listToAttrs (map (f: lib.nameValuePair (lib.removeSuffix ".md" f) {
@@ -161,7 +179,10 @@ in
     // lib.mapAttrs' (name: e: lib.nameValuePair ".config/ai/settings/${name}.json" {
       source = json.generate "${name}.json" e.settings;
     }) (lib.filterAttrs (_: e: e.settings != { }) (enabled cfg.skills // enabled cfg.agents))
-    // lib.listToAttrs (map (p: lib.nameValuePair ".config/ai/review-lenses/${baseNameOf p}" { source = p; }) cfg.reviewLenses);
+    // lib.listToAttrs (map (p: lib.nameValuePair ".config/ai/review-lenses/${baseNameOf p}" { source = p; }) cfg.reviewLenses)
+    // lib.optionalAttrs (cfg.secrets.readCommand != null) {
+      ".config/ai/secrets.json".source = json.generate "secrets.json" { inherit (cfg.secrets) readCommand; };
+    };
 
     home.packages = lib.concatMap (e: e.packages) (lib.attrValues (enabled cfg.skills // enabled cfg.agents))
       ++ [ pkgs.uv pkgs.pandoc pkgs.ghostscript pkgs.poppler-utils ];

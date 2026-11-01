@@ -41,6 +41,10 @@ in
     ${pkgs.python3}/bin/python3 ${shared}/skills/review/tests/test_cross_audit.py ${shared}/skills/review/scripts 2>&1 | tee $out
   '';
 
+  credential = pkgs.runCommand "ai-credential" { } ''
+    ${pkgs.python3}/bin/python3 ${shared}/lib/tests/test_credential.py ${shared}/lib 2>&1 | tee $out
+  '';
+
   vectorcraft = craft "vectorcraft";
   figcraft = craft "figcraft";
   glyphs = craft "glyphs";

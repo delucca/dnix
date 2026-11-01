@@ -26,6 +26,7 @@ Everything enters through options, and the harnesses render it. A consumer never
 
 - `dnix.ai.skills.<name>` and `dnix.ai.agents.<name>` take `{ enable, source, settings, packages }`. The shipped ones set `source` as a default, so a consumer overrides one by name, adds its own, or turns one off with `enable = false`. An entry with no source fails an assertion, which catches a misspelled name.
 - `settings` renders to `~/.config/ai/settings/<name>.json`. `wrap-up` reads `ownRemotes` and `publishedTrailers` there, `review` reads `harnessWrapper` and `passEnvPrefixes`.
+- A shipped skill with a `secrets.nix` reads secrets, so it is off until the consumer enables it, and enabling it needs `dnix.ai.secrets.readCommand`. The file returns the default reference per key, given the op-agent vault, as `settings.secrets`; a consumer overrides one key by name. `lib/credential.py` runs the command on the reference at use time. `use-home-assistant` also needs `settings.url`.
 - `dnix.ai.instructions` and `dnix.ai.instructionDirs` take `NN-name.md` sections, merged with `harnesses/shared/instructions/` by number, the same shape as `dnix.developer`.
 - `dnix.ai.claude.settings`, `dnix.ai.codex.settings`, `dnix.ai.codex.hooks`, `dnix.ai.antigravity.settings` and `dnix.ai.antigravity.hooks` take harness policy and hooks; lists from several modules are concatenated.
 
@@ -40,6 +41,7 @@ A skill script finds `lib/` by resolving its own path, so a consumer's skills si
 | `dnix.ai.agents` | the shipped agents | Agents every enabled harness loads, by name. |
 | `dnix.ai.instructions` | the shipped sections | Global instructions, concatenated by `order`. |
 | `dnix.ai.instructionDirs` | `[ ]` | Folders of `NN-name.md` sections to add. |
+| `dnix.ai.secrets.readCommand` | `[ "op-agent" "read" ]` with `opAgent`, else `null` | The command a skill runs, with a secret's reference appended, to read it. Rendered to `~/.config/ai/secrets.json`. |
 | `dnix.ai.reviewLenses` | `[ ]` | Extra lens briefs for `review`, linked under `~/.config/ai/review-lenses/`. |
 | `dnix.ai.skipPermissions.enable` | `true` | Runs every harness unattended: Claude's `bypassPermissions`, Codex's `approval_policy = "never"` with `danger-full-access`, agy's `always-proceed`. Turn it off on a machine where that is not wanted. |
 | `dnix.ai.devTree` | `null` | A live checkout of `harnesses/shared` to link the shipped skills and `~/.config/ai/common` from, so an edit lands without a switch. Agents are rendered, so they always come from the store. |

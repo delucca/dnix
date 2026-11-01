@@ -20,6 +20,12 @@ Speak one protocol to one kind of remote thing.
 | `mcp_stdio.py` | Any MCP server spawned as a **subprocess**, over newline-delimited JSON-RPC 2.0 on its stdio. Used by use-chrome, use-pdf-reader and other MCP-backed skills. |
 | `craft_control.py` | A Craft desktop app's **loopback control port**, one request per call. Used by use-figcraft and use-vectorcraft. |
 
+## Credential source
+
+| Module | Role |
+|---|---|
+| `credential.py` | Reads a skill's secret at use time: runs `readCommand` from `~/.config/ai/secrets.json` on the reference at `settings.secrets.<key>` in the skill's `~/.config/ai/settings/<skill>.json`. Also returns those settings. Used by the skills that ship a `secrets.nix`. |
+
 ## Output port
 
 | Module | Role |
