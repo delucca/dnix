@@ -4,6 +4,9 @@ let
   shared = ../harnesses/shared;
   agentMd = import ../harnesses/antigravity/agent-md.nix { inherit pkgs; };
   yaml = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
+  craft = test: pkgs.runCommand "ai-${test}" { } ''
+    ${pkgs.python3}/bin/python3 ${shared}/skills/use-${test}/tests/test_${test}.py ${shared} 2>&1 | tee $out
+  '';
 in
 {
   dsession = pkgs.runCommand "ai-dsession" { } ''
@@ -37,4 +40,8 @@ in
   review-cross-audit = pkgs.runCommand "ai-review-cross-audit" { nativeBuildInputs = [ pkgs.git ]; } ''
     ${pkgs.python3}/bin/python3 ${shared}/skills/review/tests/test_cross_audit.py ${shared}/skills/review/scripts 2>&1 | tee $out
   '';
+
+  vectorcraft = craft "vectorcraft";
+  figcraft = craft "figcraft";
+  glyphs = craft "glyphs";
 }
