@@ -9,6 +9,7 @@ let
   cfg = ai.claude;
   jsonFormat = pkgs.formats.json { };
   hook = command: { hooks = [{ type = "command"; inherit command; }]; };
+  vendorPath = "$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
 in
 {
   options.dnix.ai.claude = {
@@ -29,9 +30,13 @@ in
       readOnly = true;
       description = "A directory holding the rendered managed-settings.json.";
     };
+
+    install.enable = lib.mkEnableOption "installing the Claude Code CLI with claude.ai/install.sh when no claude is on PATH";
+
+    patchModeBadge.enable = lib.mkEnableOption "patching the Claude Code binary to drop the permission-mode badge and the idle \"for agents\" footer";
   };
 
-  config = lib.mkIf (ai.enable && cfg.enable) {
+  config = lib.mkIf (ai.enable && cfg.enable) (lib.mkMerge [{
     dnix.ai.claude.settings = {
       managedSourcesBehavior = "merge";
       preferredNotifChannel = "notifications_disabled";
@@ -67,5 +72,27 @@ in
         fi
       fi
     '';
-  };
+  }
+
+  (lib.mkIf cfg.install.enable {
+    home.activation.claudeCode = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      if ! PATH="${vendorPath}:$PATH" command -v claude >/dev/null 2>&1; then
+        run env PATH="${vendorPath}:$PATH" bash -c 'curl -fsSL https://claude.ai/install.sh | bash' \
+          || warnEcho "claude-code: install failed -- re-run the switch, or run 'curl -fsSL https://claude.ai/install.sh | bash' by hand for the error."
+      fi
+    '';
+  })
+
+  (lib.mkIf cfg.patchModeBadge.enable {
+    home.file.".local/bin/claude-patch-mode-badge" = {
+      source = ./patch-mode-badge;
+      executable = true;
+    };
+
+    home.activation.claudeModeBadge = lib.hm.dag.entryAfter ([ "writeBoundary" "linkGeneration" ] ++ lib.optional cfg.install.enable "claudeCode") ''
+      run env PATH="/usr/bin:/bin:$PATH" "$HOME/.local/bin/claude-patch-mode-badge" \
+        || warnEcho "claude-patch-mode-badge: patch failed -- re-run the switch, or run it by hand for the error."
+    '';
+  })
+  ]);
 }

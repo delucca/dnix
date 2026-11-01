@@ -10,7 +10,8 @@ darwin.nix         darwinModules.ai: installs managed-settings.json and /etc/cod
                    reading the primary user's dnix.ai options
 harnesses/
   shared/          what every harness loads: skills/, agents/, hooks/, lib/, instructions/
-  claude/          ~/.claude: skills, agents, CLAUDE.md, the managed settings, the no-MCP guard
+  claude/          ~/.claude: skills, agents, CLAUDE.md, the managed settings, the no-MCP guard,
+                   the CLI installer and patch-mode-badge
   codex/           ~/.codex: skills, AGENTS.md, agents rendered to TOML, hooks.json, managed config
   antigravity/     ~/.gemini: skills, AGENTS.md, agents rendered by agy-agent-md, hooks.json,
                    the settings merge, the no-MCP guard
@@ -42,6 +43,8 @@ A skill script finds `lib/` by resolving its own path, so a consumer's skills si
 | `dnix.ai.skipPermissions.enable` | `true` | Runs every harness unattended: Claude's `bypassPermissions`, Codex's `approval_policy = "never"` with `danger-full-access`, agy's `always-proceed`. Turn it off on a machine where that is not wanted. |
 | `dnix.ai.devTree` | `null` | A live checkout of `harnesses/shared` to link the shipped skills and `~/.config/ai/common` from, so an edit lands without a switch. Agents are rendered, so they always come from the store. |
 | `dnix.ai.claude.enable` | `true` | Installs the Claude Code files and its managed settings. |
+| `dnix.ai.claude.install.enable` | `false` | Runs `claude.ai/install.sh` at switch time when no `claude` is on PATH. |
+| `dnix.ai.claude.patchModeBadge.enable` | `false` | Installs `claude-patch-mode-badge` and runs it at switch time: it strips the permission-mode badge and the idle "for agents" footer from the Claude binary, keeping its byte length. Each new version is patched once; a changed render site exits 2 with a warning. |
 | `dnix.ai.codex.enable` | `true` | Installs the Codex files and its managed config. Run `codex doctor` after changing settings: Codex ignores an invalid managed value without a word. |
 | `dnix.ai.antigravity.enable` | `false` | Installs the agy files and merges its settings. |
 | `dnix.ai.dsession.enable` | `dnix.ai.enable` | Puts `dsession` on PATH. |

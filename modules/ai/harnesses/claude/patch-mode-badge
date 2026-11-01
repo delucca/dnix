@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+# Strip unconfigurable Claude Code TUI chrome from the native binary by
+# rewriting JSX render sites inside the JS bundle embedded in the compiled Bun
+# executable. Every edit keeps the byte length identical, which is required for
+# the embedded bundle's offsets to stay valid.
+#
+#   (A) The permission-mode badge ("bypass permissions on", "don't ask on",
+#       ...). No supported setting (anthropics/claude-code#39905, closed
+#       not-planned). As of 2.1.233 the badge is its own memoized component
+#       taking `{mode,children}`, rendered from two guarded sites shaped
+#       `X&&Y?FACTORY(BADGE,{mode:V,children:...},"mode"):null` (before,
+#       the whole badge was inline JSX in the guard). Rewrite each guard to a
+#       same-length falsy `!`-run token so both take the null branch. Note the
+#       older `&&` -> `&!` trick is NOT safe here: with the badge behind a
+#       component, a falsy second operand would render it with `mode:undefined`
+#       instead of nothing. 2.1.259 wraps the badge in a `flexShrink:0` box, so
+#       one more factory call can sit between the guard and `{mode:`; the regex
+#       tolerates a single such wrapper.
+#   (B) The idle "for agents" footer text (the "<- for agents" hint shown when
+#       no subagents need input, under agent teams). The idle/active split
+#       lives inside one component (VUe) whose idle branch ends in `return VAR}`;
+#       rewrite that return to a same-length falsy token (`!!0` == false) so the
+#       idle text renders nothing. VUe is still instantiated elsewhere
+#       (gk==="agents" / interrupt modes), so this keeps those blank too.
+#       From 2.1.288 the label is `V?"to go back":"for agents"`: shrink the
+#       second literal to `!1` and spend its bytes on `return V&&VAR}`, so only
+#       "to go back" still renders. 2.1.304 drops that ternary again and
+#       memoizes on a second cache slot (`X[N]=L,X[M]=VAR;else`), so the
+#       first shape tolerates extra slot assignments before the last one.
+#
+# The following three remove the empty vertical space that (A)/(B) left behind
+# under a configured statusLine -- a blank hint-bar row and a blank margin above
+# the subagents roster (reported 2026-07-19):
+#
+#   (C) The footer hint-bar reserves a blank line when it has nothing to show
+#       (a configured statusLine suppresses the "? for shortcuts" hint, and the
+#       agents indicator renders empty). Two early-returns hand back
+#       `Zi()?<space>:null` -- a 1-row placeholder. Flip `Zi()` to the
+#       same-length falsy `0||0` so both collapse to null and the row vanishes.
+#   (D) The subagents roster (i2a) wraps its column in `marginTop:1`, a blank
+#       line between the statusLine and the first agent. Rewrite it to 0 so the
+#       roster butts against the statusLine. Since 2.1.257 the column's props
+#       are hoisted out of the render site into a `const` chain, so the literal
+#       is no longer at the JSX call: it reads `marginTop:VAR`, with `VAR=1`
+#       declared beside the `"column"` flexDirection above. Flip that
+#       declaration instead, tying the two together by VAR so no other
+#       hoisted `=1` can be hit.
+#   (E) The foreground/background agents indicator (`<- N agents`) is pushed
+#       into the fixed `height:1` hint-bar row even when it renders empty, which
+#       reserves a blank line whenever subagents are running-but-idle. The
+#       parent can't know the indicator is empty at push time, and the row's
+#       fixed height can't collapse, so drop the indicator entirely: flip its
+#       guard `!YUe` to the same-length falsy `0&&0` at both the "fg-agents" and
+#       "bg-detach" JSX sites. The roster still lists every agent and its
+#       idle / needs-input state (deliberate trade-off, confirmed 2026-07-19).
+#
+# Since 2.1.252 the bundle is built with `bun build --compile --bytecode`: the
+# JS source is still embedded (and still what the regexes above rewrite) but
+# each module also carries JSC bytecode, and the runtime executes the bytecode
+# without ever validating it against the source. A source-only patch is then
+# applied, asserted, signed -- and inert. So after the rewrite, the second pass
+# below parses Bun's standalone module graph (the `__BUN` section: string data,
+# a table of 52-byte module records, an `Offsets` struct, and the trailer
+# `\n---- Bun! ----\n`), finds the module whose contents contain each rewritten
+# site, and zeroes that record's `bytecode` length. With no bytecode on offer
+# Bun hands JSC the (patched) source to parse; `module_info` stays, it only
+# carries the import/export table and that is unchanged. Cost: one ~1MB chunk
+# parsed at startup instead of loaded from cache. A module the regexes touch
+# whose record still says bytecode is a failed patch and exits 2 like a missing
+# render site would.
+#
+# Idempotent: a marker file next to the versioned binary makes re-runs a
+# no-op, and each auto-updated version is a new file, so the marker naturally
+# expires. Run from the home-manager activation (modules/ai) and by hand.
+#
+# Exit codes: 0 patched/already patched/not installed, 1 patch aborted,
+# 2 a render site not found (Claude Code internals changed; patch needs rework).
+# With --check first, patches nothing: 0 when already patched or not
+# installed, 1 when a patch is due.
+set -euo pipefail
+
+check=0
+if [ "${1:-}" = "--check" ]; then check=1; shift; fi
+bin="${1:-$HOME/.local/bin/claude}"
+[ -e "$bin" ] || exit 0
+bin="$(readlink -f "$bin")"
+marker="$bin.claude-patched3"
+
+# The marker holds the inode it patched: an installer can replace the binary
+# in place under the same path.
+inode() { ls -i "$1" | awk '{print $1}'; }
+if [ -e "$marker" ] && [ "$(cat "$marker")" = "$(inode "$bin")" ]; then
+  exit 0
+fi
+[ "$check" -eq 1 ] && exit 1
+
+tmp="$bin.tmp.$$"
+trap 'rm -f "$tmp"' EXIT
+
+# All substitutions in one pass. Minified names change every release, so match
+# the stable SHAPE of each render site, not the literal names. Counts printed to
+# stderr as "A B C D E"; patched bytes go to $tmp.
+#
+# How the bundle spells a JSX element call also moves between releases: through
+# 2.1.242 it was `FACTORY.jsx(COMP,PROPS)`, from 2.1.243 it is a bare local
+# `FACTORY(COMP,PROPS)` (2.1.245 has exactly one `.jsx(` left in the whole
+# bundle). Every render-site regex below -- and its post-state assertion --
+# therefore writes the accessor as `(?:\.jsx)?` and leans on the props shape,
+# not the call form, to pin the site.
+counts=$(perl -0777 -pe '
+  # (A) mode badge: X&&Y?FACTORY(BADGE,{mode:V,children:...})  ->  <falsy>?...
+  # Shape-based (component and variable names are minified and change each
+  # release): the `{mode:V,children:` prop shape right after the factory call is
+  # unique to the badge. Rewrite the whole `X&&Y` guard to a same-length falsy `!`-run.
+  my $a = s/([\w\$]{1,20})&&([\w\$]{1,20})(\?[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{(?:[^{}]{0,40}children:[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{)?mode:[\w\$]{1,20},children:)/my $g=length($1)+2+length($2);("!" x ($g-1)).((($g-1)%2)?"1":"0").$3/ge;
+  # (B) idle agents footer text: ...;return VAR}  ->  ...;return <same-length falsy>}
+  my $b = s/(," for agents"\]\}\),(?:[\w\$]{1,12}\[\d{1,4}\]=[\w\$]{1,12},)*[\w\$]{1,12}\[\d{1,4}\]=([\w\$]{1,12});else \2=[\w\$]{1,12}\[\d{1,4}\];return )\2\}/"$1" . ("!" x (length($2) - 1)) . (length($2) % 2 ? "0" : "1") . "}"/ge;
+  $b   += s/(=([\w\$]{1,8})\?"to go back":)"for agents"(;let ([\w\$]{1,12});.{0,300}?;return )\4\}/"$1!1" . (" " x (8 - length($2))) . "$3$2&&$4}"/ge;
+  # (C) hint-bar empty placeholder rows collapse: GUARD?<space>:null  ->  <falsy>?<space>:null
+  # Shape-based (guard/factory/component names are minified and change each release):
+  # match GUARD?FACTORY(COMP,{children:" "}):null, rewrite the guard to a
+  # same-length falsy `!`-run token so every such row takes the null branch.
+  # 2.1.245 has three such sites: the two footer early-returns plus the
+  # statusLine slot empty placeholder, all the same blank-row shape. Through
+  # 2.1.263 the guard was a memoized function call (`GUARD()`); 2.1.266 reads
+  # the memoized value directly as a bare variable (`GUARD`), so the trailing
+  # `()` is now optional -- captured as part of the same group so the falsy
+  # token length still covers whichever form is present.
+  my $c = s/([\w\$]{1,20}(?:\(\))?)(\?[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{children:" "\}\):null)/my $g=length($1);("!" x ($g-1)).(($g-1)%2?"1":"0").$2/ge;
+  # (D) roster top gap: the hoisted `VAR=1` behind `marginTop:VAR`  ->  `VAR=0`
+  # Anchor on the `"column"` flexDirection the chain declares one slot earlier,
+  # then confirm through the lookahead that the very next name is the one that
+  # the roster render call reads as `marginTop:`, so a same-shaped `=1` in some
+  # other hoisted chain cannot be hit. `\K` keeps the rewrite to the one digit.
+  my $d = s/="column",([\w\$]{1,20})=\K1(?=,.{0,4000}?,\{flexDirection:[\w\$]{1,20},marginTop:\1,paddingRight:)/0/gs;
+  # (E) drop fg/bg agents indicator push: !VAR?FACTORY(COMP,{},"fg-agents"|"bg-detach")
+  # Shape-based: the guard immediately before the `?` is `!VAR`; rewrite just that
+  # `!VAR` to a same-length falsy `!`-run so the `&&` chain collapses and the null
+  # branch always wins (leaves any earlier `&&` terms in the guard untouched).
+  # The `(?<!!)` is load-bearing: without it the pattern re-matches the `!0` tail of
+  # its own output, and a second pass rewrites falsy `!!0` into TRUTHY `!!1`, quietly
+  # restoring the indicator. Only (E) can self-match -- (A)/(B)/(C)/(D) all key off a
+  # literal the rewrite removes (`&&`, the backreferenced name, `()`, `=1`).
+  my $e  = s/(?<!!)!([\w\$]{1,20})(\?[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{\},"fg-agents"\))/("!" x length($1)).((length($1)+1)%2?"0":"1").$2/ge;
+  $e    += s/(?<!!)!([\w\$]{1,20})(\?[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{\},"bg-detach"\))/("!" x length($1)).((length($1)+1)%2?"0":"1").$2/ge;
+  # 2.1.304: the fg push takes `{children:VAR}` behind a trailing `VAR!==null`
+  # guard, and the bg variant is no longer a keyed push but a hoisted
+  # `let X=(F()||G())&&...?VAR:null` slot rendering the same VAR. Rewrite that
+  # `VAR!==null` and that `(F()||G())` to same-length falsy `!`-runs.
+  $e    += s/&&\K([\w\$]{1,20})!==null(?=\?[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{children:\1\},"fg-agents"\))/my $g=length($1)+7;("!" x ($g-1)).(($g-1)%2?"1":"0")/ge;
+  $e    += s/let [\w\$]{1,20}=\K(\([\w\$]{1,20}\(\)\|\|[\w\$]{1,20}\(\)\))(?=&&[^?;]{0,80}\?([\w\$]{1,20}):null,[^;]{0,400}?\{children:\2\},"fg-agents"\))/my $g=length($1);("!" x ($g-1)).(($g-1)%2?"1":"0")/ge;
+  print STDERR ($a + 0), " ", ($b + 0), " ", ($c + 0), " ", ($d + 0), " ", ($e + 0);
+' "$bin" 2>&1 >"$tmp")
+read -r na nb nc nd ne <<<"$counts"
+
+# Second pass, in place on $tmp: verify each patch is in its POST-state (applied
+# just now or in a prior run), then switch off the bytecode of every module a
+# patched site lives in. A missing signature means its render site shape is
+# gone -> Claude Code internals changed and that regex needs reworking.
+#
+# Where a rewrite left a `!`-run token, assert it is genuinely FALSY, not merely
+# `!`-run shaped: parity is what decides truth (`!!0` is false, `!!1` is true), so
+# a shape-only `!+[01]` would wave through a token that renders the chrome anyway.
+# Falsy means an even run before `0` or an odd run before `1`; the leading `(?<!!)`
+# pins the match to the whole token so a longer run cannot match a falsy suffix.
+#
+# Module graph layout (Bun 1.4, src/standalone_graph/StandaloneModuleGraph.rs):
+# the trailer closes the section; the 32-byte `Offsets` before it holds
+# `byte_count` (u64, the data length up to and including the module table) and
+# `modules_ptr` ({offset,length} u32 pair relative to the data start), so the
+# data start is `offsets_pos - byte_count` with no Mach-O/ELF parsing. Each
+# module record is six {offset,length} pairs -- name, contents, sourcemap,
+# bytecode, module_info, bytecode_origin_path -- then four byte enums.
+# Prints "modules-disabled=N" to stdout.
+disabled=$(perl - "$tmp" <<'PERL'
+  use strict; use warnings;
+  my $file = shift;
+  open my $fh, '+<:raw', $file or die "$file: $!";
+  my $data = do { local $/; <$fh> };
+  my $falsy = '(?<!!)(?:(?:!!)*0|!(?:!!)*1)';
+  my @sites = (
+    ["mode-badge",     qr/$falsy\?[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{(?:[^{}]{0,40}children:[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{)?mode:[\w\$]{1,20},children:/],
+    ["agents-footer",  qr/," for agents"\]\}\),(?:[\w\$]{1,12}\[\d{1,4}\]=[\w\$]{1,12},)*[\w\$]{1,12}\[\d{1,4}\]=[\w\$]{1,12};else [\w\$]{1,12}=[\w\$]{1,12}\[\d{1,4}\];return $falsy\}|\?"to go back":!1 *;let ([\w\$]{1,12});.{0,300}?;return [\w\$]{1,8}&&\1\}/],
+    ["hintbar-blank",  qr/$falsy\?[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{children:" "\}\):null/],
+    ["roster-margin",  qr/="column",([\w\$]{1,20})=0(?=,.{0,4000}?,\{flexDirection:[\w\$]{1,20},marginTop:\1,paddingRight:)/s],
+    ["fg-agents-push", qr/$falsy\?[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{(?:children:[\w\$]{1,20})?\},"fg-agents"\)/],
+    ["bg-detach-push", qr/$falsy\?[\w\$]{1,20}(?:\.jsx)?\([\w\$]{1,20},\{\},"bg-detach"\)|=$falsy&&[^?;]{0,80}\?([\w\$]{1,20}):null,[^;]{0,400}?\{children:\1\},"fg-agents"\)/],
+  );
+  my @hits;
+  for my $s (@sites) {
+    my ($label, $re) = @$s;
+    my $n = 0;
+    while ($data =~ /$re/g) { push @hits, [$label, $-[0]]; $n++ }
+    if (!$n) { print STDERR "claude-patch: $label render site not found in $file -- Claude Code internals changed\n"; exit 2 }
+  }
+
+  my $trailer = "\n---- Bun! ----\n";
+  my $tpos = rindex($data, $trailer);
+  if ($tpos < 48) { print STDERR "claude-patch: Bun module graph trailer not found in $file\n"; exit 2 }
+  my $opos = $tpos - 32;
+  my ($byte_count, $moff, $mlen) = unpack('Q< L< L<', substr($data, $opos, 16));
+  my $base = $opos - $byte_count;
+  my $REC = 52;
+  if ($base < 0 || $moff + $mlen > $byte_count || $mlen % $REC) {
+    print STDERR "claude-patch: Bun module graph offsets look corrupt in $file\n"; exit 2 }
+  my @mods;
+  for my $i (0 .. $mlen / $REC - 1) {
+    my $rec = $base + $moff + $i * $REC;
+    my ($noff, $nlen, $coff, $clen, undef, undef, $boff, $blen) = unpack('(L< L<)4', substr($data, $rec, 32));
+    push @mods, { rec => $rec, name => substr($data, $base + $noff, $nlen),
+                  cstart => $base + $coff, cend => $base + $coff + $clen, blen => $blen };
+  }
+
+  my %off;
+  for my $h (@hits) {
+    my ($label, $pos) = @$h;
+    my ($m) = grep { $pos >= $_->{cstart} && $pos < $_->{cend} } @mods;
+    if (!$m) { print STDERR "claude-patch: $label site at $pos is outside every module's contents in $file\n"; exit 2 }
+    next unless $m->{blen};
+    $off{$m->{rec}} = $m;
+  }
+  for my $m (values %off) {
+    seek $fh, $m->{rec} + 28, 0 or die "seek: $!";
+    print $fh pack('L<', 0) or die "write: $!";
+    print STDERR "claude-patch: bytecode off for $m->{name} ($m->{blen} bytes)\n";
+  }
+  close $fh or die "close: $!";
+  print "modules-disabled=", scalar(keys %off), "\n";
+PERL
+) || { rc=$?; [ "$rc" -eq 2 ] && exit 2; echo "claude-patch: post-pass failed (rc=$rc)" >&2; exit 1; }
+nbc=${disabled#modules-disabled=}
+
+# Nothing rewritten (all patches already applied, marker was just missing):
+# adopt the marker, no re-sign needed.
+if cmp -s "$bin" "$tmp"; then
+  inode "$bin" >"$marker"
+  exit 0
+fi
+
+old=$(wc -c <"$bin")
+new=$(wc -c <"$tmp")
+if [ "$old" -ne "$new" ]; then
+  echo "claude-patch: patched size $new != original $old, aborting" >&2
+  exit 1
+fi
+
+# A modified Mach-O fails signature validation and gets SIGKILLed; re-sign
+# ad-hoc, keeping the JIT/automation entitlements Bun needs. Signing changes
+# the file size, hence after the size check.
+if [ "$(uname)" = "Darwin" ]; then
+  codesign --force --sign - --preserve-metadata=entitlements "$tmp" 2>/dev/null
+fi
+
+chmod 755 "$tmp"
+mv "$tmp" "$bin"
+trap - EXIT
+inode "$bin" >"$marker"
+echo "claude-patch: applied (badge=$na footer=$nb hintbar=$nc margin=$nd agents=$ne bytecode-off=$nbc) in $bin" >&2
