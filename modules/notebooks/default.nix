@@ -5,6 +5,8 @@ let
   relRoot = lib.removePrefix (config.home.homeDirectory + "/") cfg.root;
 in
 {
+  imports = [ ./backup.nix ];
+
   options.dnix.notebooks = {
     enable = lib.mkEnableOption "the Notebooks tree";
     root = lib.mkOption {
