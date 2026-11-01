@@ -7,6 +7,7 @@
     lib = import ./lib;
     homeManagerModules = {
       ai = ./modules/ai;
+      aws = ./modules/aws;
       desktop = ./modules/desktop;
       developer = ./modules/developer;
       notebooks = ./modules/notebooks;
@@ -24,6 +25,6 @@
     };
     checks.aarch64-darwin = nixpkgs.lib.mapAttrs' (name: nixpkgs.lib.nameValuePair "ai-${name}") (import ./modules/ai/tests { pkgs = nixpkgs.legacyPackages.aarch64-darwin; })
       // nixpkgs.lib.mapAttrs' (name: nixpkgs.lib.nameValuePair "lib-${name}") (import ./lib/tests { pkgs = nixpkgs.legacyPackages.aarch64-darwin; })
-      // { observability = import ./modules/observability/test.nix { pkgs = nixpkgs.legacyPackages.aarch64-darwin; }; };
+      // { observability = import ./modules/observability/test.nix { pkgs = nixpkgs.legacyPackages.aarch64-darwin; }; aws = import ./modules/aws/test.nix { pkgs = nixpkgs.legacyPackages.aarch64-darwin; }; };
   };
 }
