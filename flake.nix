@@ -16,7 +16,10 @@
       ai = ./modules/ai/darwin.nix;
       nix = ./modules/nix;
     };
-    nixosModules = { };
-    checks.aarch64-darwin = nixpkgs.lib.mapAttrs' (name: nixpkgs.lib.nameValuePair "ai-${name}") (import ./modules/ai/tests { pkgs = nixpkgs.legacyPackages.aarch64-darwin; });
+    nixosModules = {
+      observability = ./modules/observability;
+    };
+    checks.aarch64-darwin = nixpkgs.lib.mapAttrs' (name: nixpkgs.lib.nameValuePair "ai-${name}") (import ./modules/ai/tests { pkgs = nixpkgs.legacyPackages.aarch64-darwin; })
+      // { observability = import ./modules/observability/test.nix { pkgs = nixpkgs.legacyPackages.aarch64-darwin; }; };
   };
 }
