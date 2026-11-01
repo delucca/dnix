@@ -55,7 +55,7 @@ let
     in lib.optionals (builtins.pathExists f) (import f { inherit pkgs; });
 in
 {
-  imports = [ ./dsession ./harnesses/claude ./harnesses/codex ./harnesses/antigravity ];
+  imports = [ ./dsession ./op-agent ./harnesses/claude ./harnesses/codex ./harnesses/antigravity ];
 
   options.dnix.ai = {
     enable = lib.mkEnableOption "the agent stack";
