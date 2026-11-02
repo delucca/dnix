@@ -30,6 +30,7 @@
     checks.aarch64-darwin = let pkgs = nixpkgs.legacyPackages.aarch64-darwin; in
       import ./modules/ai/tests { inherit pkgs; } // {
         aws = import ./modules/aws/test.nix { inherit pkgs; };
+        node = import ./modules/node/test.nix { inherit pkgs; };
         observability = import ./modules/observability/test.nix { inherit pkgs; };
       };
   };

@@ -1,0 +1,23 @@
+VMID="${1:?usage: gpu-reprime <vmid>}"
+QM=/usr/sbin/qm
+LOG=/var/log/gpu-allocate.log
+log() { echo "[$(date '+%F %T')] reprime vm=$VMID $*" >> "$LOG"; }
+
+# The first boot after a cross-VM handoff runs long enough to claim the card, then
+# the VM stops and starts again. A warm reboot (qm reset, qm reboot) does not work:
+# QEMU has to exit between the two boots.
+log "throwaway boot running; waiting 90s before stop+start"
+sleep 90
+
+log "graceful shutdown (timeout 45s)"
+"$QM" shutdown "$VMID" --timeout 45 >/dev/null 2>&1 || true
+if "$QM" status "$VMID" 2>/dev/null | grep -q running; then
+  log "graceful shutdown did not complete; force stop"
+  "$QM" stop "$VMID" >/dev/null 2>&1 || true
+fi
+
+sleep 3
+log "starting real (same-VM) boot"
+rc=0
+"$QM" start "$VMID" >/dev/null 2>&1 || rc=$?
+log "reprime stop+start issued (start rc=$rc)"

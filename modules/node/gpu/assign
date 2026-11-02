@@ -1,0 +1,14 @@
+failed=0
+for vmid in "${VMS[@]}"; do
+  if [ ! -e "/etc/pve/qemu-server/$vmid.conf" ]; then
+    echo "vm $vmid does not exist, skipped"
+  elif qm config "$vmid" | grep -qxF "hookscript: $HOOKSCRIPT"; then
+    continue
+  elif qm set "$vmid" --hookscript "$HOOKSCRIPT" >/dev/null; then
+    echo "vm $vmid now runs $HOOKSCRIPT"
+  else
+    echo "vm $vmid: could not set $HOOKSCRIPT" >&2
+    failed=1
+  fi
+done
+exit "$failed"

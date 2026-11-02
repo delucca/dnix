@@ -1,0 +1,12 @@
+want="${FILES[*]}"
+stamp="$STATE_DIRECTORY/stamp"
+if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$want" ]; then
+  exit 0
+fi
+# update-initramfs copies /etc/modprobe.d, so every file has to be in place first.
+for f in "${FILES[@]}"; do
+  cmp -s "${f%%=*}" "${f#*=}"
+done
+update-initramfs -u -k all
+echo "$want" > "$stamp"
+: > /run/reboot-required

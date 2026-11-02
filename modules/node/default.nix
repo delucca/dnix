@@ -83,6 +83,44 @@ let
     prelude = vars { NIC = toString cfg.power.nic; BACKUP_UUID = toString cfg.power.diskUuid; };
   };
 
+  gpuAllocate = import ./gpu/allocate.nix { inherit pkgs; inherit (cfg.gpu) vms hostpci; };
+  # qm and update-initramfs run Debian's own scripts: keep nix's tools off their PATH.
+  gpuReprime = script {
+    name = "pve-gpu-reprime";
+    file = ./gpu/reprime;
+    inputs = [ ];
+    prelude = "";
+  };
+  gpuAssign = script {
+    name = "pve-gpu-hookscript";
+    file = ./gpu/assign;
+    inputs = [ ];
+    prelude = ''
+      HOOKSCRIPT=local:snippets/gpu-allocate.pl
+      VMS=(${toString cfg.gpu.vms})
+    '';
+  };
+
+  modprobeFiles = lib.mapAttrs (name: text: pkgs.writeText "${name}.conf" text) cfg.modprobe;
+  modprobeRefresh = script {
+    name = "pve-modprobe-refresh";
+    file = ./modprobe/refresh;
+    strict = true;
+    inputs = [ ];
+    prelude = "FILES=(${toString (lib.mapAttrsToList (name: f: lib.escapeShellArg "/etc/modprobe.d/${name}.conf=${f}") modprobeFiles)})\n";
+  };
+
+  activation = package: extra: lib.recursiveUpdate {
+    wantedBy = [ "system-manager.target" ];
+    path = [ "/usr" ];
+    restartTriggers = [ package ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = lib.getExe package;
+    };
+  } extra;
+
   registrar = after: package: {
     wantedBy = [ "multi-user.target" ];
     wants = [ "network-online.target" ];
@@ -167,6 +205,19 @@ in
         default = null;
       };
     };
+
+    gpu = {
+      vms = mkOption {
+        type = types.listOf types.ints.positive;
+        default = [ ];
+      };
+      hostpci = mkOption { type = types.str; };
+    };
+
+    modprobe = mkOption {
+      type = types.attrsOf types.lines;
+      default = { };
+    };
   };
 
   config = lib.mkMerge [
@@ -234,6 +285,28 @@ in
             (lib.getExe powerPin)
           ];
         };
+      };
+    })
+
+    (mkIf (cfg.gpu.vms != [ ]) {
+      systemd.tmpfiles.settings."10-pve-gpu" = {
+        "/var/lib/vz/snippets/gpu-allocate.pl"."L+".argument = "${gpuAllocate}";
+        "/var/lib/vz/snippets/gpu-reprime.sh"."L+".argument = lib.getExe gpuReprime;
+      };
+      systemd.services.pve-gpu-hookscript = activation gpuAssign {
+        requires = [ "pve-cluster.service" ];
+        after = [ "pve-cluster.service" ];
+      };
+    })
+
+    (mkIf (cfg.modprobe != { }) {
+      environment.etc = lib.mapAttrs' (name: f: lib.nameValuePair "modprobe.d/${name}.conf" {
+        source = f;
+        mode = "0644";
+        replaceExisting = true;
+      }) modprobeFiles;
+      systemd.services.pve-modprobe-refresh = activation modprobeRefresh {
+        serviceConfig.StateDirectory = "pve-modprobe-refresh";
       };
     })
   ];
