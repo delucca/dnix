@@ -3,6 +3,7 @@
 let
   shared = ../harnesses/shared;
   agentMd = import ../harnesses/antigravity/agent-md.nix { inherit pkgs; };
+  agentToml = import ../harnesses/codex/agent-toml.nix { inherit pkgs; };
   yaml = pkgs.python3.withPackages (ps: [ ps.pyyaml ]);
   craft = test: pkgs.runCommand "ai-${test}" { } ''
     ${pkgs.python3}/bin/python3 ${shared}/skills/use-${test}/tests/test_${test}.py ${shared} 2>&1 | tee $out
@@ -29,6 +30,10 @@ in
 
   ai-antigravity-agent-md = pkgs.runCommand "ai-antigravity-agent-md" { } ''
     ${yaml}/bin/python3 ${../harnesses/antigravity/tests/test_agent_md.py} ${agentMd}/bin/agy-agent-md 2>&1 | tee $out
+  '';
+
+  ai-codex-agent-toml = pkgs.runCommand "ai-codex-agent-toml" { } ''
+    ${pkgs.python3}/bin/python3 ${../harnesses/codex/tests/test_agent_toml.py} ${agentToml}/bin/codex-agent-toml 2>&1 | tee $out
   '';
 
   ai-review-diff-metrics =

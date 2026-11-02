@@ -11,9 +11,10 @@ runs that client through its prefix. Without --dir,
 DSESSION_DIRS (a JSON array of strings) is the directory list. Codex runs on
 an overlay CODEX_HOME under /tmp/dsession-<user> that links the real home and
 generates AGENTS.md, hooks.json and skills/ from it plus the linked
-directories. Claude runs on its real home with --add-dir, a generated
---settings and --append-system-prompt; a linked directory's Claude hooks are
-included only after `dsession trust` recorded them. agy runs on its real home
+directories, and agents/ when a linked directory has Claude agents, rendered
+by codex-agent-toml beside the global ones. Claude runs on its real home
+with --add-dir, a generated --settings and --append-system-prompt; a linked
+directory's Claude hooks are included only after `dsession trust` recorded them. agy runs on its real home
 with one --add-dir per linked directory, which it reads natively, plus an
 overlay folder holding the directories' Claude agents rendered by agy-agent-md.
 A resume of an agy conversation with no .db under ~/.gemini exits 1, since agy would start a new one.
@@ -42,13 +43,15 @@ import time
 import tomllib
 
 USAGE = "usage: dsession new|resume ID [--dir PATH]... [--context FILE] -- CLIENT [ARGS...] | trust [--dir PATH]..."
-GENERATED = ("AGENTS.md", "skills", "hooks.json")
+GENERATED = ("AGENTS.md", "skills", "hooks.json", "agents")
 IGNORED = ("AGENTS.override.md",)
 SCRATCH = ("AGENTS.md.tmp", "hooks.json.tmp")
 SKILLS_PREFIX = "skills."
 ADAPTERS = ("codex", "claude", "agy")
 AGY_RENDERER = "agy-agent-md"
+CODEX_RENDERER = "codex-agent-toml"
 AGENTS_PREFIX = "agents."
+VERSIONED = (SKILLS_PREFIX, AGENTS_PREFIX)
 AGENTS_MD_LIMIT = 32 * 1024
 CONTEXT_LIMIT = 64 * 1024
 AGY_CONTEXT_LIMIT = 24 * 1024
@@ -411,7 +414,7 @@ def remove_entry(path):
 def clear_strays(codex_home, base):
     for name in os.listdir(codex_home):
         path = os.path.join(codex_home, name)
-        if name in GENERATED or name.startswith(SKILLS_PREFIX):
+        if name in GENERATED or name.startswith(VERSIONED):
             continue
         if name in SCRATCH:
             remove_entry(path)
@@ -428,7 +431,7 @@ def link_base(codex_home, base):
         if name in IGNORED:
             warn("ignoring " + os.path.join(base, name) + " so the composed AGENTS.md applies")
             continue
-        if name in GENERATED or name.startswith(SKILLS_PREFIX):
+        if name in GENERATED or name.startswith(VERSIONED):
             continue
         path = os.path.join(codex_home, name)
         target = os.path.join(base, name)
@@ -439,19 +442,22 @@ def link_base(codex_home, base):
         os.symlink(target, path)
 
 
-def publish_version(parent, live, prefix, version):
+def publish_link(parent, live, prefix, target, keep):
     link = live + ".tmp"
-    keep = {os.path.basename(version)}
     if os.path.islink(live):
         keep.add(os.path.basename(os.readlink(live)))
     elif os.path.isdir(live):
         os.rename(live, tempfile.mkdtemp(prefix=prefix, dir=parent))
     sweep(link)
-    os.symlink(os.path.relpath(version, os.path.dirname(live)), link)
+    os.symlink(target, link)
     os.replace(link, live)
     for name in os.listdir(parent):
         if name.startswith(prefix) and name not in keep:
             remove_entry(os.path.join(parent, name))
+
+
+def publish_version(parent, live, prefix, version):
+    publish_link(parent, live, prefix, os.path.relpath(version, os.path.dirname(live)), {os.path.basename(version)})
 
 
 def build_skills(codex_home, base, dirs):
@@ -507,6 +513,57 @@ def build_agy_agents(agy_dir, sources):
         warn("some linked agents were not rendered for agy")
     publish_version(agy_dir, live, AGENTS_PREFIX, version)
     return bool(os.listdir(version))
+
+
+def collect_codex_agents(base_agents, dirs):
+    owners = {n[:-5]: os.path.join(base_agents, n) for n in listdir_sorted(base_agents) if n.endswith(".toml")}
+    sources = []
+    for d in dirs:
+        for name, path in agent_files(os.path.join(d, ".claude", "agents")):
+            if name in owners:
+                if os.path.realpath(path) != os.path.realpath(owners[name]):
+                    warn("agent " + name + " from " + path + " dropped: already provided by " + owners[name])
+                continue
+            owners[name] = path
+            sources.append(path)
+    return sources
+
+
+def build_codex_agents(codex_home, base, dirs):
+    live = os.path.join(codex_home, "agents")
+    base_agents = os.path.join(base, "agents")
+    sources = collect_codex_agents(base_agents, dirs)
+    renderer = shutil.which(CODEX_RENDERER) if sources else None
+    if sources and renderer is None:
+        warn(CODEX_RENDERER + " not on PATH; the linked directories' Claude agents are not loaded")
+    if renderer is None:
+        # The base folder itself, so an agent a plugin writes mid-session lands in the real home.
+        if os.path.lexists(base_agents):
+            publish_link(codex_home, live, AGENTS_PREFIX, base_agents, set())
+        else:
+            sweep(live, *(os.path.join(codex_home, n) for n in os.listdir(codex_home) if n.startswith(AGENTS_PREFIX)))
+        return
+    version = tempfile.mkdtemp(prefix=AGENTS_PREFIX, dir=codex_home)
+    for name in listdir_sorted(base_agents):
+        os.symlink(os.path.join(base_agents, name), os.path.join(version, name))
+    # Rendered apart from the links: a frontmatter name can differ from its file name,
+    # and writing through a link would overwrite the base agent it points at.
+    scratch = tempfile.mkdtemp(prefix=AGENTS_PREFIX, dir=codex_home)
+    try:
+        status = subprocess.run([renderer, scratch] + sources).returncode
+    except OSError as exc:
+        warn(CODEX_RENDERER + " failed: " + str(exc))
+        status = 1
+    if status != 0:
+        warn("some linked agents were not rendered for Codex")
+    for name in listdir_sorted(scratch):
+        dest = os.path.join(version, name)
+        if os.path.lexists(dest):
+            warn("rendered agent " + name + " dropped: already provided by " + os.readlink(dest))
+        else:
+            os.rename(os.path.join(scratch, name), dest)
+    remove_entry(scratch)
+    publish_version(codex_home, live, AGENTS_PREFIX, version)
 
 
 def build_agy_context(parent, source, text):
@@ -658,6 +715,7 @@ def regenerate_codex(base, dirs):
             composed = compose_hooks(sources)
             write_replace(os.path.join(codex_home, "hooks.json"), json.dumps(composed, indent=2, sort_keys=False) + "\n")
             build_skills(codex_home, base, dirs)
+            build_codex_agents(codex_home, base, dirs)
             write_replace(os.path.join(root, "dirs"), "".join(d + "\n" for d in dirs))
             real_home = os.path.realpath(codex_home)
             base_hooks = read_base_hooks(base_hooks_path)

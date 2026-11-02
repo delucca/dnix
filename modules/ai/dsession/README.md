@@ -23,11 +23,11 @@ For a command that wraps a client, configure `dnix.ai.dsession.wrappers`, for ex
 
 | Client | Linked-directory behavior |
 |---|---|
-| Codex | Composes global and linked `AGENTS.md`, skills from `.agents/skills` and `.claude/skills`, and `.codex/hooks.json` into a temporary `CODEX_HOME`. Falls back to `CLAUDE.md` when `AGENTS.md` is absent, but does not expand its `@` imports. |
+| Codex | Composes global and linked `AGENTS.md`, skills from `.agents/skills` and `.claude/skills`, and `.codex/hooks.json` into a temporary `CODEX_HOME`. Converts `.claude/agents` through `codex-agent-toml` when it is on `PATH`, beside the global agents; with nothing to convert, `agents` links the real home's folder. Falls back to `CLAUDE.md` when `AGENTS.md` is absent, but does not expand its `@` imports. |
 | Claude | Uses `--add-dir` and enables reading the directories' `CLAUDE.md`. Appends `AGENTS.md` when no `CLAUDE.md` exists. Merges trusted `.claude/settings.json` hooks with explicit client settings. |
 | agy | Passes directories with `--add-dir`, leaving their native `AGENTS.md` and `.agents` files to agy. Converts `.claude/agents` through `agy-agent-md` when it is on `PATH`; it does not translate Claude hooks or `CLAUDE.md`. |
 
-Codex keeps the first skill of a given name and warns about later collisions. Claude gets collision warnings but resolves its own skills. For agy agent conversion, native agent names take precedence over converted Claude agents.
+Codex keeps the first skill of a given name and warns about later collisions. Claude gets collision warnings but resolves its own skills. For agy agent conversion, native agent names take precedence over converted Claude agents. For Codex, global agent names take precedence, then the first linked directory; a converted agent keeps only its name and instructions, so its Claude tool list does not restrict it.
 
 ## Trust
 

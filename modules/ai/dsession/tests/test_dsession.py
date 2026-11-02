@@ -1280,6 +1280,140 @@ class SkillsSwap(Case):
         self.assertEqual(len(self.versions(home)), 2)
 
 
+class CodexAgents(Case):
+    def setUp(self):
+        super().setUp()
+        self.render_log = os.path.join(self.tmp, "render.log")
+        os.environ["FAKE_RENDER_LOG"] = self.render_log
+        self.addCleanup(os.environ.pop, "FAKE_RENDER_LOG", None)
+        self.base_agents = os.path.join(self.base, "agents")
+        self.global_agent = write(os.path.join(self.base_agents, "g.toml"), "global\n")
+
+    def install_renderer(self):
+        path = write(os.path.join(self.bin, "codex-agent-toml"), RENDERER.format(python=sys.executable))
+        os.chmod(path, 0o755)
+
+    def renders(self):
+        if not os.path.exists(self.render_log):
+            return []
+        with open(self.render_log) as f:
+            return [json.loads(line) for line in f if line.strip()]
+
+    def project(self, name, *agents):
+        d = self.mkdir(name)
+        for agent in agents:
+            write(os.path.join(d, ".claude", "agents", agent + ".md"), "---\nname: %s\n---\n" % agent)
+        return d
+
+    def versions(self, home):
+        return sorted(n for n in os.listdir(home) if n.startswith("agents."))
+
+    def test_without_linked_agents_it_links_the_base_folder(self):
+        self.install_renderer()
+        home, err = self.regenerate([self.mkdir("d")])
+        self.assertEqual(err, "")
+        self.assertEqual(os.readlink(os.path.join(home, "agents")), self.base_agents)
+        self.assertEqual(self.versions(home), [])
+        self.assertEqual(self.renders(), [])
+
+    def test_without_a_base_folder_or_linked_agents_there_is_none(self):
+        os.remove(self.global_agent)
+        os.rmdir(self.base_agents)
+        home, err = self.regenerate([self.mkdir("d")])
+        self.assertEqual(err, "")
+        self.assertFalse(os.path.lexists(os.path.join(home, "agents")))
+
+    def test_linked_agents_render_beside_the_global_ones(self):
+        self.install_renderer()
+        d = self.project("d", "x")
+        home, err = self.regenerate([d])
+        self.assertEqual(err, "")
+        live = os.path.join(home, "agents")
+        self.assertRegex(os.readlink(live), r"^agents\.[^/]+$")
+        self.assertEqual(sorted(os.listdir(live)), ["g.toml", "x.md"])
+        self.assertEqual(os.readlink(os.path.join(live, "g.toml")), self.global_agent)
+        self.assertFalse(os.path.islink(os.path.join(live, "x.md")))
+        [render] = self.renders()
+        self.assertEqual(render[1:], [os.path.join(d, ".claude", "agents", "x.md")])
+        self.assertEqual(self.versions(home), [os.readlink(live)])
+        self.assertEqual(os.listdir(self.base_agents), ["g.toml"])
+
+    def test_a_linked_agents_folder_is_followed(self):
+        self.install_renderer()
+        d = self.mkdir("d")
+        write(os.path.join(d, ".ai", "agents", "x.md"), "---\nname: x\n---\n")
+        os.makedirs(os.path.join(d, ".claude"))
+        os.symlink(os.path.join("..", ".ai", "agents"), os.path.join(d, ".claude", "agents"))
+        home, _ = self.regenerate([d])
+        self.assertEqual(sorted(os.listdir(os.path.join(home, "agents"))), ["g.toml", "x.md"])
+
+    def test_global_agent_wins_and_the_linked_one_is_dropped(self):
+        self.install_renderer()
+        d = self.project("d", "g")
+        home, err = self.regenerate([d])
+        path = os.path.join(d, ".claude", "agents", "g.md")
+        self.assertEqual(self.lines(err), ["dsession: agent g from %s dropped: already provided by %s" % (path, self.global_agent)])
+        self.assertEqual(os.readlink(os.path.join(home, "agents")), self.base_agents)
+        self.assertEqual(self.renders(), [])
+
+    def test_first_linked_directory_wins(self):
+        self.install_renderer()
+        a = self.project("a", "x")
+        b = self.project("b", "x")
+        _, err = self.regenerate([a, b])
+        first = os.path.join(a, ".claude", "agents", "x.md")
+        second = os.path.join(b, ".claude", "agents", "x.md")
+        self.assertEqual(self.lines(err), ["dsession: agent x from %s dropped: already provided by %s" % (second, first)])
+        self.assertEqual([r[1:] for r in self.renders()], [[first]])
+
+    def test_missing_renderer_warns_and_keeps_the_base_link(self):
+        home, err = self.regenerate([self.project("d", "x")])
+        self.assertEqual(self.lines(err), ["dsession: codex-agent-toml not on PATH; the linked directories' Claude agents are not loaded"])
+        self.assertEqual(os.readlink(os.path.join(home, "agents")), self.base_agents)
+
+    def test_renderer_failure_warns_and_publishes_what_rendered(self):
+        self.install_renderer()
+        home, err = self.regenerate_with({"FAKE_RENDER_EXIT": "1"}, [self.project("d", "x")])
+        self.assertEqual(self.lines(err), ["dsession: some linked agents were not rendered for Codex"])
+        self.assertEqual(sorted(os.listdir(os.path.join(home, "agents"))), ["g.toml", "x.md"])
+
+    def test_a_rendered_name_clash_never_writes_through_a_link(self):
+        self.install_renderer()
+        clash = write(os.path.join(self.base_agents, "x.md"), "base\n")
+        home, err = self.regenerate([self.project("d", "x")])
+        self.assertEqual(self.lines(err), ["dsession: rendered agent x.md dropped: already provided by " + clash])
+        self.assertEqual(read(clash), "base\n")
+        self.assertEqual(os.readlink(os.path.join(home, "agents", "x.md")), clash)
+        self.assertEqual(self.versions(home), [os.readlink(os.path.join(home, "agents"))])
+
+    def test_switching_between_rendered_and_base_layouts(self):
+        self.install_renderer()
+        d = self.project("d", "x")
+        home, _ = self.regenerate([d])
+        rendered = os.readlink(os.path.join(home, "agents"))
+        os.remove(os.path.join(d, ".claude", "agents", "x.md"))
+        home, _ = self.regenerate([d])
+        self.assertEqual(os.readlink(os.path.join(home, "agents")), self.base_agents)
+        self.assertEqual(self.versions(home), [rendered])
+        home, _ = self.regenerate([d])
+        self.assertEqual(self.versions(home), [])
+        write(os.path.join(d, ".claude", "agents", "y.md"), "---\nname: y\n---\n")
+        home, _ = self.regenerate([d])
+        self.assertEqual(sorted(os.listdir(os.path.join(home, "agents"))), ["g.toml", "y.md"])
+        self.assertEqual(os.listdir(self.base_agents), ["g.toml"])
+
+    def test_launch_hands_codex_the_rendered_agents(self):
+        self.install_renderer()
+        d = self.project("d", "x")
+        call = self.only_call(self.run_launcher("new", "--dir", d, "--", "codex"))
+        agents = os.path.join(call["env"]["CODEX_HOME"], "agents")
+        self.assertEqual(sorted(os.listdir(agents)), ["g.toml", "x.md"])
+
+    def regenerate_with(self, env, dirs):
+        with mock.patch.dict(os.environ, env):
+            return self.regenerate(dirs)
+
+
 class HookTrustSeed(Case):
     G0 = {"hooks": [{"type": "command", "command": "/global/start"}]}
     G1 = {"matcher": "resume", "hooks": [{"type": "command", "command": "/global/a"}, {"type": "command", "command": "/global/b"}]}

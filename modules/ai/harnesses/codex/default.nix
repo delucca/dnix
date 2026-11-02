@@ -20,10 +20,10 @@ let
     "visualize@openai-bundled"
   ];
 
-  py = pkgs.python3.withPackages (ps: [ ps.pyyaml ps.tomli-w ]);
-  agentsToml = pkgs.runCommand "codex-agents" { nativeBuildInputs = [ py ]; } ''
+  agentToml = import ./agent-toml.nix { inherit pkgs; };
+  agentsToml = pkgs.runCommand "codex-agents" { } ''
     mkdir -p $out
-    python ${./agent-toml.py} $out ${lib.concatStringsSep " " (lib.attrValues ai.resolved.agentFiles)}
+    ${agentToml}/bin/codex-agent-toml $out ${lib.concatStringsSep " " (lib.attrValues ai.resolved.agentFiles)}
   '';
 
   hooksFile = ".codex/hooks.json";
@@ -82,6 +82,9 @@ in
       run rm -f "$HOME/${hooksFile}"
       run install -m 0644 -D ${hooks} "$HOME/${hooksFile}"
     '');
+
+    # On PATH for dsession, which renders linked directories' agents with it.
+    home.packages = [ agentToml ];
 
     home.file = {
       ".codex/AGENTS.md".text = ai.instructionsText;
