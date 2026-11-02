@@ -1,6 +1,6 @@
 ---
 name: use-vectorcraft
-description: Read and edit the open VectorCraft desktop document through its native control port. Use for "draw in VectorCraft", "edit this vector artwork", "inspect my VectorCraft document", or render, save, and export work there. NOT for FigCraft files (use-figcraft) or Figma designs (use-figma).
+description: Read and edit the open VectorCraft desktop document through its native control port. Use for "draw in VectorCraft", "edit this vector artwork", "inspect my VectorCraft document", or render, save, and export work there. NOT for FigCraft files (use-figcraft).
 argument-hint: "[status|inspect|commands|run|call|render|save|export] [command, method, or path]"
 allowed-tools: Bash(python3 */use-vectorcraft/scripts/vectorcraft.py *), Read
 disable-model-invocation: true

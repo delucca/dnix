@@ -1,6 +1,6 @@
 ---
 name: use-figcraft
-description: Read and edit FigCraft documents through the desktop app's local control port. Use for "inspect this FigCraft file", "edit layers/layout in FigCraft", render, save, or export a FigCraft design. NOT for Figma (use-figma) or VectorCraft (use-vectorcraft).
+description: Read and edit FigCraft documents through the desktop app's local control port. Use for "inspect this FigCraft file", "edit layers/layout in FigCraft", render, save, or export a FigCraft design. NOT for VectorCraft (use-vectorcraft).
 argument-hint: "[status|inspect|commands|run|call|render|save|export] [arguments]"
 allowed-tools: Bash(python3 */use-figcraft/scripts/figcraft.py *), Read
 disable-model-invocation: true
