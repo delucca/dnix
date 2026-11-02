@@ -97,8 +97,6 @@ let
   };
 in
 {
-  imports = [ ../secrets ];
-
   options.dnix.node = {
     ssh = mkOption { type = types.str; };
     sudoPasswordRef = mkOption { type = types.str; };

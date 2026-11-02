@@ -1,6 +1,6 @@
 # guest
 
-The module every Proxmox guest composes. `default.nix` holds what a guest is regardless of how Proxmox runs it: ssh with the given keys, the admin user, [the secrets module](../secrets/README.md), and the `dnix.guest` block that [`estateScripts`](../../lib/README.md) turns into a create command. The other two files are the platform halves, one of which `dnix.guest.platform` selects.
+The module every Proxmox guest composes. `default.nix` holds what a guest is regardless of how Proxmox runs it: ssh with the given keys, the admin user, and the `dnix.guest` block a deploy script turns into a create command. The other two files are the platform halves, one of which `dnix.guest.platform` selects.
 
 A flake takes it as `dnix.nixosModules.guest`. Importing it makes the host a guest; there is no `enable`.
 

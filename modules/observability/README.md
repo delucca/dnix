@@ -20,7 +20,7 @@ test.nix      the check: the built CLI against a throwaway local broker
 | `dnix.observability.broker.host` | required | The broker's address. |
 | `dnix.observability.broker.port` | `1883` | The broker's port. |
 | `dnix.observability.broker.user` | `null` | The broker login. `null` logs in as the calling user. |
-| `dnix.observability.broker.passwordFile` | required | The file holding the broker password, read at each run, such as a `dnix.secrets` file's `path`. |
+| `dnix.observability.broker.passwordFile` | required | The file holding the broker password, read at each run. |
 | `dnix.observability.discoveryPrefix` | `homeassistant` | Home Assistant's discovery prefix. |
 | `dnix.observability.device.manufacturer` | `null` | The manufacturer shown on every device. Left out of the payload while `null`. |
 | `dnix.observability.device.model` | `null` | The model shown on every device. Left out of the payload while `null`. |
@@ -29,7 +29,7 @@ test.nix      the check: the built CLI against a throwaway local broker
 ```nix
 dnix.observability = {
   enable = true;
-  broker = { host = "192.168.1.20"; user = "nas"; passwordFile = config.dnix.secrets.files.mqtt_password.path; };
+  broker = { host = "192.168.1.20"; user = "nas"; passwordFile = "/var/lib/secrets/mqtt_password"; };
   device.manufacturer = "me";
 };
 ```

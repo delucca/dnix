@@ -4,7 +4,7 @@ let
   cfg = config.dnix.guest;
 in
 {
-  imports = [ ../secrets ./lxc.nix ./vm.nix ];
+  imports = [ ./lxc.nix ./vm.nix ];
 
   options.dnix.guest = {
     platform = lib.mkOption {

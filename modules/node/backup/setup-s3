@@ -1,8 +1,8 @@
 # Cloud side of one offsite backup domain, on the laptop with admin AWS creds and
 # op: a scoped IAM user and inline policy, its access key and two rclone crypt
 # passwords stored in a 1Password item, and a bucket lifecycle rule merged into
-# the existing ones. Dry-run unless --apply. The node's dnix.secrets template
-# then references the four fields of that item.
+# the existing ones. Dry-run unless --apply. The node's rclone config then
+# takes the four fields of that item.
 #
 #   setup-s3 --bucket NAME --region REGION --prefix PREFIX --op-vault NAME
 #            [--apply] [--account ID] [--user NAME] [--expire-days N] [--op-item NAME]
@@ -258,4 +258,4 @@ if [ "$APPLY" -eq 1 ]; then
 else
   log "DRY-RUN complete -- nothing changed. Re-run with --apply to converge."
 fi
-log "next: reference the four fields of op item '$OP_ITEM' from the node's dnix.secrets template, then switch the node with DNIX_SECRETS_REFRESH=1"
+log "next: put the four fields of op item '$OP_ITEM' into the node's rclone config, then switch the node"
