@@ -1,38 +1,29 @@
 # guest
 
-The module every Proxmox container guest composes: ssh with the given keys, the admin user, the LXC base, and the `dnix.guest` block a deploy script turns into a create command.
+Provide a NixOS base for an x86_64 Proxmox LXC container, with SSH, DHCP and optional administrator access.
+Importing the module activates it; there is no `dnix.guest.enable` switch, and it does not configure a QEMU VM.
 
-A flake takes it as `dnix.nixosModules.guest`. Importing it makes the host a guest; there is no `enable`.
+## Use
 
-## Options
-
-| Option | Default | What it does |
-|---|---|---|
-| `dnix.guest.node` | required | The Proxmox node that runs the guest, a `systemConfigs` name in the same flake. |
-| `dnix.guest.vmid` | required | The Proxmox id, unique across the nodes. |
-| `dnix.guest.cores` | `1` | Cores handed to the guest. |
-| `dnix.guest.memory` | `1024` | Memory in MiB. |
-| `dnix.guest.swap` | `512` | Swap in MiB. |
-| `dnix.guest.rootfs` | `local-lvm:8` | Root storage and its size in GiB. |
-| `dnix.guest.devices` | `[ ]` | Host devices passed into the container, each as `pct set --devN` takes it, after the `/dev/net/tun` every container gets. |
-| `dnix.guest.mounts` | `[ ]` | Further mount point volumes, each as `pct set --mpN` takes it (`storage:size,mp=/path,backup=1`), applied once at create. |
-| `dnix.guest.hwaddr` | required | The NIC's MAC. |
-| `dnix.guest.description` | `""` | The note Proxmox shows next to the guest. |
-| `dnix.guest.adminUser` | `null` | A wheel user with passwordless sudo and the same keys as root. None while `null`. |
-| `dnix.guest.authorizedKeyFiles` | `[ ]` | Public key files that may ssh in as root and as the admin user. |
-
-Nothing reads the sizing options at build time. They exist so the create command and the configuration the guest boots come from one file.
+With [the dnix input available](../../README.md#use-a-module), add this module to your NixOS container configuration:
 
 ```nix
-dnix.guest = {
-  node = "pve";
-  vmid = 105;
-  hwaddr = "BC:24:11:00:00:01";
-  adminUser = "me";
-  authorizedKeyFiles = [ ./laptop.pub ];
-};
+{ inputs, ... }: {
+  imports = [ inputs.dnix.nixosModules.guest ];
+  dnix.guest = {
+    node = "example-node";
+    vmid = 105;
+    hwaddr = "02:00:00:00:00:01";
+  };
+}
 ```
 
-## The container
+Supply `dnix.guest.authorizedKeyFiles` with your public key files before deployment. Root receives those keys; setting `adminUser` also creates a normal wheel user with the same keys and passwordless sudo. SSH password authentication is disabled.
 
-It imports nixpkgs' `proxmox-lxc` module, which brings the container boot path, networkd and the getty Proxmox expects on tty1. The hostname is managed here rather than picked up from `/etc/hostname`, and `eth0` takes its address over DHCP.
+## Container and deployment boundaries
+
+The module imports nixpkgs' `proxmox-lxc` base, manages the hostname, and requests DHCP on `eth0`. Network-online waits for IPv4. It sets the platform to `x86_64-linux` and the NixOS state version to `26.05`.
+
+`node`, `vmid`, `hwaddr`, resource sizing, devices and mounts are metadata for the consumer's deployment tooling. The module does not create the container or apply that metadata to Proxmox. The consumer owns provisioning and deployment.
+
+See [the option definitions](default.nix) for the metadata fields, default sizing, Nix settings and container configuration.

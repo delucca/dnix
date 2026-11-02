@@ -1,43 +1,31 @@
 # desktop
 
-The home-manager module for a Mac with a screen: `.app` bundles copied into `/Applications`, home folders kept in shape, a Chrome with the DevTools port open, an optional guard that keeps the Ask Siri shortcut off, ghostty, and git. A flake takes it as `dnix.homeManagerModules.desktop` and a host sets `dnix.desktop.enable = true`. The `.app` copier, the home folders, the Chrome agent and the Siri guard only act on darwin; git applies on any platform.
+Configure a desktop with Ghostty and Git, plus macOS app copying, home folders and a Chrome debugging session.
+The Home Manager module applies Git settings and Ghostty configuration on every platform; app copying, folder management, Chrome and the optional Siri shortcut guard run only on Darwin.
 
-## Files
+## Use
 
-```
-default.nix        the imports and `dnix.desktop.enable`
-mac-apps.nix       `dnix.macApps.apps`: `.app` bundles copied from the store into `/Applications`
-home-folders.nix   `dnix.homeFolders`: home folders created, hidden from Finder, or asserted as iCloud symlinks
-chrome.nix         a launchd agent for a Chrome with the DevTools port 9222 open, on its own profile, and `chrome_up`/`chrome_down`
-siri-shortcut.nix  `dnix.desktop.disableSiriShortcut`: two launchd agents that keep the Ask Siri keyboard shortcut off
-ghostty/           the ghostty bundle, through `dnix.macApps`, and its config
-git.nix            git config and aliases, lfs, difftastic as the diff renderer
-```
-
-## Options
-
-| Option | Default | What it does |
-|---|---|---|
-| `dnix.desktop.enable` | `false` | Turns the module on. |
-| `dnix.macApps.apps` | `[ ]` | Every `<pkg>/Applications/*.app` is copied into `/Applications`, swapped in through a staged copy, and registered with LaunchServices. A stamp under `~/.local/state/mac-apps` skips a bundle that has not changed. |
-| `dnix.homeFolders.create` | `[ ]` | Names created under `$HOME`. |
-| `dnix.homeFolders.hidden` | `[ ]` | Names hidden from Finder. |
-| `dnix.homeFolders.icloudLinks` | `[ ]` | Names asserted as symlinks into iCloud Drive. A real folder is left alone with a warning. |
-| `dnix.desktop.disableSiriShortcut` | `false` | Keeps the Ask Siri keyboard shortcut off and restarts the Siri daemons when it comes back. |
+On macOS, install Google Chrome at `/Applications/Google Chrome.app` and provide the `MonoLisaCode` font used by the Ghostty configuration.
+With [the dnix input available](../../README.md#use-a-module), add:
 
 ```nix
-dnix.desktop.enable = true;
-dnix.macApps.apps = [ pkgs.appcleaner ];
-dnix.homeFolders.icloudLinks = [ "Desktop" "Downloads" ];
+{ inputs, ... }: {
+  imports = [ inputs.dnix.homeManagerModules.desktop ];
+  dnix.desktop.enable = true;
+}
 ```
 
-## Notes
+The module installs Ghostty's app bundle on Darwin. On other platforms it writes the configuration but does not install Ghostty.
 
-- Copying into `/Applications` needs the user in the admin group; without it the bundle is skipped with a warning.
-- The Chrome agent runs `/Applications/Google Chrome.app` on `~/.chrome-debug-profile` and logs to `~/.local/log/chrome-devtools-browser.log`. Chrome itself is not installed by this module. `chrome_up [url]` starts it and waits for the port, optionally opening `url`; `chrome_down` stops it.
-- `dnix.desktop.disableSiriShortcut` is for hyper keys (Superkey) that press Cmd around every synthesized arrow: macOS reads that as the double-Cmd Ask Siri trigger and eats the keystroke. Only the enabled flag of `com.apple.Siri` `KeyboardShortcutSAE` is rewritten; the stored shortcut is kept. A host that uses a Siri shortcut should leave it off.
-- The watch agent runs on a change to `~/Library/Preferences/com.apple.Siri.plist`, which System Settings writes when the shortcut dropdown is touched, and every 30 minutes in case the file is replaced and the watch is lost. It only writes when the flag is on, since its own write fires the watch again.
-- The login agent always rewrites the flag and restarts the daemons, 45 seconds after login: after a macOS update the plist can be clean while the running daemons still listen for Cmd. Both log to `~/.local/log/siri-shortcut-guard.log`.
-- The ghostty config sets `font-family = MonoLisaCode` and does not install the font: the consumer provides it.
-- git sets no identity, signing or merge tool: the host sets them in its own `programs.git`. A key this module already sets takes `lib.mkForce` to change.
-- `git diff` renders through difftastic. Use `git diff --no-ext-diff` for a patch.
+## Desktop behavior
+
+- [App copying](mac-apps.nix) installs `dnix.macApps.apps` bundles into `/Applications`. That directory must be writable by the user; otherwise activation warns and skips the bundle. Ghostty's self-updater is disabled, so update it through the consumer's flake lock.
+- [Home folder settings](home-folders.nix) create directories, hide them in Finder or link them into iCloud Drive. Existing real directories are left in place with a warning.
+- [Chrome](chrome.nix) uses a separate `~/.chrome-debug-profile` with DevTools on port 9222. `chrome_up [url]` starts it and waits for readiness; `chrome_down` stops that profile. Chrome itself is an external prerequisite.
+- [The Siri guard](siri-shortcut.nix) is opt-in through `dnix.desktop.disableSiriShortcut`. It keeps Ask Siri's keyboard shortcut disabled while retaining the stored shortcut value, and restarts the Siri daemons.
+
+## Git and terminal settings
+
+[Git settings](git.nix) enable Git LFS, aliases and difftastic as a diff tool. Identity, signing and merge-tool selection belong in your own `programs.git` configuration. Conflicting settings may need `lib.mkForce`.
+
+The [Ghostty configuration](ghostty/config) contains the font, theme, keybindings and clipboard behavior. The [module entry point](default.nix) links the imported components and their options.

@@ -1,40 +1,26 @@
-# `~/.config/ai/common/lib/`
+# Shared skill helpers
 
-The shared kernel: modules imported by more than one shipped skill, or by
-shipped skills and a consumer's.
-A module with a single consumer lives in that skill's `scripts/`.
-Some adapters consolidated copies that had drifted; a new adapter belongs here
-when at least two skills share its protocol. Nothing here is a general-purpose
-utility bucket: each module is a named adapter with one job.
+These Python modules provide adapters used by several skills. They are installed at `~/.config/ai/common/lib/` by the [AI module](../../../README.md).
 
-Scripts import these through `sys.path` shims, since nothing here is an
-installed package: from `skills/<name>/scripts/`, this kernel is
-`parents[3] / "lib"`.
-
-## Transport adapters
-
-Speak one protocol to one kind of remote thing.
-
-| Module | Transport |
+| Helper | Responsibility |
 |---|---|
-| `mcp_stdio.py` | Any MCP server spawned as a **subprocess**, over newline-delimited JSON-RPC 2.0 on its stdio. Used by use-chrome, use-pdf-reader and other MCP-backed skills. |
-| `craft_control.py` | A Craft desktop app's **loopback control port**, one request per call. Used by use-figcraft and use-vectorcraft. |
+| [mcp_stdio.py](mcp_stdio.py) | Starts a subprocess MCP server and exchanges JSON-RPC messages over its standard input and output. |
+| [craft_control.py](craft_control.py) | Sends one request to a Craft desktop app's loopback control port. |
+| [credential.py](credential.py) | Reads skill settings and runs the configured secret reader on a secret reference at use time. |
+| [emit.py](emit.py) | Prints short results inline and writes large results to a caller-selected directory with a preview. |
 
-## Credential source
+## Use and ownership
 
-| Module | Role |
-|---|---|
-| `credential.py` | Reads a skill's secret at use time: runs `readCommand` from `~/.config/ai/secrets.json` on the reference at `settings.secrets.<key>` in the skill's `~/.config/ai/settings/<skill>.json`. Also returns those settings. Used by the skills that ship a `secrets.nix`. |
+The helpers are not an installed Python package. Skill scripts add this directory to `sys.path`, resolving it relative to their own file. From `skills/<name>/scripts/<script>.py`, the shared directory is `Path(__file__).resolve().parents[3] / "lib"`. See [the FigCraft client](../skills/use-figcraft/scripts/figcraft.py) for an existing caller.
 
-## Output port
+Keep a helper in its skill's `scripts/` directory when only that skill needs it. A helper belongs here when at least two skills need the same adapter and at least one ships with this module. Each module owns one transport, credential source or output adapter; avoid a general-purpose utility collection.
 
-| Module | Role |
-|---|---|
-| `emit.py` | The single way a skill script returns a result. Short payloads print inline; large ones spill to a timestamped file under a per-skill cache dir and print a preview, so the calling agent can `Read` the rest. |
+## Checks
 
-## Adding a module
+From the repository root on `aarch64-darwin`:
 
-It belongs in a lib only if it is a named adapter with one job (a transport, a
-credential source, an output port) and at least two skills need it; it
-belongs in THIS lib only if a shipped skill is one of them. A helper used by exactly one skill belongs in that skill's
-own directory; a grab-bag `utils.py` belongs nowhere.
+```sh
+nix build .#checks.aarch64-darwin.ai-credential
+```
+
+[Credential tests](tests/test_credential.py) cover settings and secret-reader failures. The Craft adapter is exercised by the [FigCraft](../skills/use-figcraft/tests/test_figcraft.py) and [VectorCraft](../skills/use-vectorcraft/tests/test_vectorcraft.py) tests. These checks are registered explicitly in [the AI test definitions](../../../tests/default.nix).

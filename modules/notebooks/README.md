@@ -1,32 +1,32 @@
 # notebooks
 
-The home-manager module that renders `~/Notebooks/AGENTS.md` and links `~/Notebooks/CLAUDE.md` to it, so a notebook session that gets the tree as an added directory reads its rules. A flake takes it as `dnix.homeManagerModules.notebooks` and a host sets `dnix.notebooks.enable = true`.
+Install shared agent instructions for a notebook tree and optionally back up its Org files.
+The Home Manager module defaults to `~/Notebooks`; each notebook is a directory containing `notebook.org`.
 
-`CLAUDE.md` is a symlink to `AGENTS.md`, not a file that imports it: a notebook session's working directory is `~/Developer`, and an `@AGENTS.md` import is skipped when the tree arrives as an added directory, while a symlinked `CLAUDE.md` there loads.
+## Use
 
-## Files
+With [the dnix input available](../../README.md#use-a-module), add:
 
+```nix
+{ inputs, ... }: {
+  imports = [ inputs.dnix.homeManagerModules.notebooks ];
+  dnix.notebooks.enable = true;
+}
 ```
-default.nix      the options and the two home.file entries
-backup.nix       dnix.notebooks.backup: hourly restic snapshots of every notebook.org, from launchd
-AGENTS.md        the rules rendered at the root of the tree
-```
 
-## Options
+See [the option definitions](default.nix) for `root` and `scopes`. Scopes contain lowercase letters; the default list is `[ "personal" ]`.
 
-| Option | Default | What it does |
-|---|---|---|
-| `dnix.notebooks.enable` | `false` | Turns the module on. |
-| `dnix.notebooks.root` | `~/Notebooks` | Where the tree lives. |
-| `dnix.notebooks.scopes` | `[ "personal" ]` | The scopes this machine holds, lowercase slugs. A notebook folder ends in `__<scope>`; the first is the default for a new notebook. |
-| `dnix.notebooks.backup.enable` | `false` | Snapshots every `notebook.org` under `root` with restic, hourly, from a launchd agent. Needs darwin. |
-| `dnix.notebooks.backup.repository` | | The restic repository, as `restic -r` takes it. |
-| `dnix.notebooks.backup.passwordCommand` | | A command that prints the repository password. |
-| `dnix.notebooks.backup.credentialCommands` | `{ }` | Environment variable to command; each command's output becomes that variable for restic, such as `AWS_ACCESS_KEY_ID` for an S3 repository. Commands run at backup time, so no secret lands in the store. |
-| `dnix.notebooks.backup.extraPaths` | `[ ]` | More paths to snapshot with the notebooks. |
+## Agent instructions
 
-## Backup
+The module places [the notebook rules](AGENTS.md) at `<root>/AGENTS.md` and makes `<root>/CLAUDE.md` a symlink to it.
+The symlink lets Claude load those rules when the notebook tree is supplied as an added directory; a file containing only `@AGENTS.md` does not serve that workflow. Sessions use the Developer tree as their working directory.
 
-Every hour, and at login, the agent initializes the repository if it is missing, snapshots the `notebook.org` files (skipping `node_modules`) and `extraPaths`, then forgets this host's snapshots down to 48 hourly, 30 daily and 12 monthly. It prunes at most once a day. `restic-notebooks` is restic with the repository and credentials already set, for restores. The log is `~/.local/log/notebooks-backup.log`.
+## Backup coverage
 
-The agent's `PATH` is the home-manager profile plus `/usr/bin:/bin`, so the password and credential commands must resolve there.
+Backups are off by default and require Darwin because scheduling uses launchd. Enable `dnix.notebooks.backup.enable` and provide `repository` and `passwordCommand`; [backup options](backup.nix) also accept `credentialCommands` and `extraPaths`.
+
+At login and hourly, the agent snapshots every `notebook.org` under the root except paths inside `node_modules`, plus `extraPaths`. Other notebook contents, including `work/` and `assets/`, are outside the default coverage; include them explicitly if needed.
+
+The agent initializes a missing restic repository, retains this host's snapshots at 48 hourly, 30 daily and 12 monthly, and prunes at most once a day. `restic-notebooks` runs restic with the repository and credentials configured for restore operations. Logs go to `~/.local/log/notebooks-backup.log`.
+
+Password and credential commands run at backup time. Their command text enters the Nix store, so use commands that retrieve secrets rather than embedding secret values. Commands must resolve through the Home Manager profile and `/usr/bin:/bin`.

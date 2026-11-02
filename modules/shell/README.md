@@ -1,34 +1,29 @@
 # shell
 
-The home-manager module for zsh: oh-my-zsh with its `git` plugin, autosuggestions, syntax highlighting and history substring search in vi insert mode, fzf with fzf-tab, zoxide as `cd`, and the starship prompt. A flake takes it as `dnix.homeManagerModules.shell` and a host sets `dnix.shell.enable = true`. It works on any platform; only the clipboard aliases are darwin-only.
+Set up Zsh with completion previews, directory navigation and a Starship prompt.
+The Home Manager module enables oh-my-zsh's Git plugin, autosuggestions, syntax highlighting, history substring search, fzf and fzf-tab.
 
-## Files
+## Use
 
-```
-default.nix      the option, the packages, and the zsh, starship, zoxide and fzf settings
-functions.zsh    `up`, sourced into ~/.zshrc
-starship.toml    the prompt
-```
-
-## Options
-
-| Option | Default | What it does |
-|---|---|---|
-| `dnix.shell.enable` | `false` | Turns the module on. |
+With [the dnix input available](../../README.md#use-a-module), add:
 
 ```nix
-dnix.shell.enable = true;
+{ inputs, ... }: {
+  imports = [ inputs.dnix.homeManagerModules.shell ];
+  dnix.shell.enable = true;
+}
 ```
 
-## What it sets
+## Shell defaults
 
-- `eza`, `tree`, `bat`, `neovim` and `shellcheck` on the path, `~/.local/bin` ahead of them, and `EDITOR = nvim`.
-- Aliases `l` (eza long listing), `nv` (nvim), and on darwin `c`/`v` for `pbcopy`/`pbpaste`; oh-my-zsh adds its git aliases.
-- `up` climbs directories: `up` one level, `up 3` three, `up name` to the nearest ancestor whose name starts with `name`.
+- Zsh starts in vi insert mode, shares history between sessions and ignores history entries with a leading space.
+- `eza`, `tree`, `bat`, `neovim` and `shellcheck` are installed; `~/.local/bin` is added to PATH and `EDITOR` is `nvim`.
+- `l` runs an eza long listing and `nv` opens Neovim. Darwin also gets `c` and `v` for `pbcopy` and `pbpaste`. The Git plugin adds its own aliases.
+- Zoxide handles interactive `cd`. The [up function](functions.zsh) climbs one directory with `up`, three with `up 3`, or to the nearest ancestor with a matching name prefix using `up name`.
 - Tab completion previews files with bat and directories with tree.
 
-## Notes
+## Customise
 
-- The zsh files go where home-manager puts them: `~/.zshrc` by default, `~/.config/zsh` on a host with `xdg.enable` and a `home.stateVersion` of 26.05 or later.
-- Anything else goes in the host's own `programs.zsh` next to it; aliases, init and session variables merge.
-- The prompt loads `starship.toml` into `programs.starship.settings`, so a host overrides one key there, such as `programs.starship.settings.character.success_symbol`, and keeps the rest.
+The [module settings](default.nix) are the reference for packages, aliases and history behavior. Add your own `programs.zsh` settings in the consumer configuration; Home Manager controls where the Zsh files are written.
+
+The [Starship configuration](starship.toml) supplies defaults, so you can override individual `programs.starship.settings` keys while retaining the rest of the prompt.

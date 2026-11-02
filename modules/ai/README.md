@@ -1,66 +1,54 @@
 # ai
 
-The agent stack for Claude Code, Codex and Antigravity CLI (agy): one set of skills, agents, hooks and instructions every harness loads, the harness files that link them in, and the `dsession` launcher. A flake takes `dnix.homeManagerModules.ai` for the user and `dnix.darwinModules.ai` for the policy files outside `$HOME`, and sets `dnix.ai.enable = true`.
+One set of skills, agents and instructions for Claude Code, Codex and Antigravity CLI (`agy`). The Home Manager module renders each client's files and installs [dsession](dsession/README.md) for sessions spanning several directories.
 
-## Files
+## Enable it
 
-```
-default.nix        the options, the shipped skills and agents, ~/.config/ai
-dependency-sources.md
-                   the LIBRARY DOCS instruction, included while use-context7 is enabled
-darwin.nix         darwinModules.ai: installs managed-settings.json and /etc/codex/managed_config.toml,
-                   reading the primary user's dnix.ai options
-harnesses/
-  shared/          what every harness loads: skills/, agents/, hooks/, lib/, instructions/
-  claude/          ~/.claude: skills, agents, CLAUDE.md, the managed settings, the no-MCP guard,
-                   the CLI installer and patch-mode-badge
-  codex/           ~/.codex: skills, AGENTS.md, agents rendered to TOML, hooks.json, managed config
-  antigravity/     ~/.gemini: skills, AGENTS.md, agents rendered by agy-agent-md, hooks.json,
-                   the settings merge, the no-MCP guard
-dsession/          the linked-directory launcher, with its own README
-op-agent/          the op-agent wrapper and its SECRETS instruction
-tests/             the flake checks, each named ai-<test>; test files live beside their code
+Add this module to a Home Manager configuration that receives `inputs` through `extraSpecialArgs`, as shown in the [root guide](../../README.md):
+
+```nix
+{ inputs, ... }:
+{
+  imports = [ inputs.dnix.homeManagerModules.ai ];
+  dnix.ai = {
+    enable = true;
+    skipPermissions.enable = false;
+  };
+}
 ```
 
-## How a consumer adds to it
+`skipPermissions.enable` defaults to `true`: Claude uses `bypassPermissions`, Codex uses `approval_policy = "never"` with `danger-full-access`, and agy uses `always-proceed`. The example disables that default. Claude and Codex configuration are enabled by default; enable agy with `dnix.ai.antigravity.enable = true`.
 
-Everything enters through options, and the harnesses render it. A consumer never writes a harness file.
+On macOS, also import `dnix.darwinModules.ai` into the nix-darwin configuration. It installs policy files outside the home directory using the primary user's Home Manager options. The consumer supplies the client executables; Claude's optional installer is configured in [its module](harnesses/claude/default.nix).
 
-- `dnix.ai.skills.<name>` and `dnix.ai.agents.<name>` take `{ enable, source, settings, packages }`. The shipped ones set `source` as a default, so a consumer overrides one by name, adds its own, or turns one off with `enable = false`. An entry with no source fails an assertion, which catches a misspelled name.
-- `settings` renders to `~/.config/ai/settings/<name>.json`. `wrap-up` reads `ownRemotes` and `publishedTrailers` there, `review` reads `harnessWrapper` and `passEnvPrefixes`.
-- A shipped skill with a `secrets.nix` reads secrets, so it is off until the consumer enables it, and enabling it needs `dnix.ai.secrets.readCommand`. The file returns the default reference per key, given the op-agent vault, as `settings.secrets`; a consumer overrides one key by name. `lib/credential.py` runs the command on the reference at use time. `use-home-assistant` also needs `settings.url`.
-- A shipped skill with a `requires.nix` needs settings first: the file lists the keys, the skill is off until the consumer enables it, and an enabled one missing a key fails an assertion. `write-in-voice` needs `corpus`, the writable directory holding the voice profile and samples, and `use-proxmox` needs `nodes`, each `{ apiHost, sshAlias, aliases, note }`, plus `secrets.<node>-password` and optionally `secrets.<node>-token`.
-- `dnix.ai.instructions` and `dnix.ai.instructionDirs` take `NN-name.md` sections, merged with `harnesses/shared/instructions/` by number, the same shape as `dnix.developer`. A section is keyed by its name without the number, so a consumer turns a shipped one off with `dnix.ai.instructions.<name>.enable = false`; an entry with neither source nor text fails an assertion. `dependency-sources` follows `use-context7`'s `enable` unless set.
-- `dnix.ai.claude.settings`, `dnix.ai.codex.settings`, `dnix.ai.codex.hooks`, `dnix.ai.antigravity.settings` and `dnix.ai.antigravity.hooks` take harness policy and hooks; lists from several modules are concatenated.
+## Customize through options
 
-A skill script finds `lib/` by resolving its own path, so a consumer's skills sit in one store tree of their own and reach the shared libraries at `~/.config/ai/common/lib`. A shipped skill that needs a package carries a `packages.nix` returning a list, installed only while the skill is enabled. `programs.bilbo` comes from bilbo's own module: the shared instructions and the `docs-researcher` agent assume it is installed.
+Add or override `dnix.ai.skills.<name>` and `dnix.ai.agents.<name>` with `source`, `settings` and `packages`; disable an entry with `enable = false`. A source is a skill directory or a Claude-format agent file. Settings render to `~/.config/ai/settings/<name>.json`. The harnesses own their generated files.
 
-## Options
+Skills with a `secrets.nix` or `requires.nix` are disabled by default. Enable them after supplying their required settings. Secret-reading skills also need `dnix.ai.secrets.readCommand`, or [op-agent](op-agent/default.nix); the [credential helper](harnesses/shared/lib/credential.py) reads references at use time.
 
-| Option | Default | What it does |
-|---|---|---|
-| `dnix.ai.enable` | `false` | Turns the module on. |
-| `dnix.ai.skills` | the shipped skills | Skills every enabled harness loads, by name. |
-| `dnix.ai.agents` | the shipped agents | Agents every enabled harness loads, by name. |
-| `dnix.ai.instructions` | the shipped sections | Global instructions, `{ enable, order, source, text }` by name, the enabled ones concatenated by `order`. |
-| `dnix.ai.instructionDirs` | `[ ]` | Folders of `NN-name.md` sections to add. |
-| `dnix.ai.secrets.readCommand` | `[ "op-agent" "read" ]` with `opAgent`, else `null` | The command a skill runs, with a secret's reference appended, to read it. Rendered to `~/.config/ai/secrets.json`. |
-| `dnix.ai.reviewLenses` | `[ ]` | Extra lens briefs for `review`, linked under `~/.config/ai/review-lenses/`. |
-| `dnix.ai.skipPermissions.enable` | `true` | Runs every harness unattended: Claude's `bypassPermissions`, Codex's `approval_policy = "never"` with `danger-full-access`, agy's `always-proceed`. Turn it off on a machine where that is not wanted. |
-| `dnix.ai.devTree` | `null` | A live checkout of `harnesses/shared` to link the shipped skills and `~/.config/ai/common` from, so an edit lands without a switch. Agents are rendered, so they always come from the store. |
-| `dnix.ai.claude.enable` | `true` | Installs the Claude Code files and its managed settings. |
-| `dnix.ai.claude.install.enable` | `false` | Runs `claude.ai/install.sh` at switch time when no `claude` is on PATH. |
-| `dnix.ai.claude.patchModeBadge.enable` | `false` | Installs `claude-patch-mode-badge` and runs it at switch time: it strips the permission-mode badge and the idle "for agents" footer from the Claude binary, keeping its byte length. Each new version is patched once; a changed render site exits 2 with a warning. |
-| `dnix.ai.codex.enable` | `true` | Installs the Codex files and its managed config. Run `codex doctor` after changing settings: Codex ignores an invalid managed value without a word. |
-| `dnix.ai.antigravity.enable` | `false` | Installs the agy files and merges its settings. |
-| `dnix.ai.dsession.enable` | `dnix.ai.enable` | Puts `dsession` on PATH. |
-| `dnix.ai.dsession.wrappers` | `[ ]` | Commands that run a client through a prefix; see dsession's README. |
-| `dnix.ai.dsession.script` | read only | `dsession.py` as a plain executable file, for a machine that does not run this module. |
-| `dnix.ai.opAgent.enable` | `false` | Installs `op-agent`, which runs `op` as a read-only service account, and adds the SECRETS instruction telling agents to try it before `op`. `op` is unfree, so the consumer allows `_1password-cli`. |
-| `dnix.ai.opAgent.tokenFile` | `null` | The file holding the service account token, read at each call. Set this or `keychain`. |
-| `dnix.ai.opAgent.keychain` | `null` | macOS only: `{ service = "op-agent"; ref = "op://Private/op-agent/credential"; }` keeps the token in the login keychain item `service`, read at each call. When the item is missing, activation fills it from `ref` with a prompted `op read`. |
-| `dnix.ai.opAgent.vault` | `"Agents"` | The one vault the service account can read, named in the instruction. |
+Global instructions are ordered sections in `dnix.ai.instructions`, or `NN-name.md` files supplied through `instructionDirs`. Disable a shipped section by its name without the numeric prefix. Client-specific settings and hooks live under `dnix.ai.claude`, `dnix.ai.codex` and `dnix.ai.antigravity`.
 
-## Skill descriptions are a shared budget
+Normally, shared files come from the Nix store. Set `dnix.ai.devTree` to a live `harnesses/shared` checkout for skill and helper edits without a switch. Agents are rendered per client and still come from the store. The shared instructions and `docs-researcher` agent expect the consumer to install bilbo separately.
 
-Codex renders every installed skill into one block capped at 2% of the model's context window (5440 tokens on a 272k model) and silently truncates descriptions once a profile stops fitting; Claude Code never truncates. Keep the `NOT for X (use-y)` clause, since bodies are invisible at selection time. `harnesses/codex/tests/codex-skill-budget.py` measures a list of skill folders: the `ai-codex-skill-budget` check runs it on the shipped set, and a consumer should run it on its installed set.
+## Find the definitions
+
+| Concern | Source |
+|---|---|
+| Skills, agents, instructions and shared settings | [default.nix](default.nix) |
+| Claude configuration | [harnesses/claude](harnesses/claude/default.nix) |
+| Codex configuration | [harnesses/codex](harnesses/codex/default.nix) |
+| agy configuration | [harnesses/antigravity](harnesses/antigravity/default.nix) |
+| macOS policy installation | [darwin.nix](darwin.nix) |
+| Linked-directory sessions | [dsession](dsession/README.md) |
+| Helpers shared by skill scripts | [shared/lib](harnesses/shared/lib/README.md) |
+
+## Check changes
+
+From the repository root:
+
+```sh
+nix flake check
+```
+
+The [AI checks](tests/default.nix) register tests beside their implementations. The `ai-codex-skill-budget` check measures the shipped skill descriptions; consumers should also check their full installed set with the [budget script](harnesses/codex/tests/codex-skill-budget.py). Keep routing descriptions short, including their exclusions, because Codex can truncate the skill list when it exceeds its description budget.

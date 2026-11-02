@@ -1,60 +1,40 @@
 # developer
 
-The home-manager module that owns the `~/Developer` tree: the clones, the per-group worktree folders, and the `AGENTS.md` at the root. A flake takes it as `dnix.homeManagerModules.developer` and a host sets `dnix.developer.enable = true`.
+Maintain a repository roster under `~/Developer`, with one clone per entry and a worktree directory per group.
+The Home Manager module also composes the instructions at the tree root.
 
-## Files
+## Use
 
-```
-default.nix      the options, the clone activation script, the AGENTS.md composition
-instructions/    the module's own sections of AGENTS.md, one `NN-name.md` each
-```
-
-## Options
-
-| Option | Default | What it does |
-|---|---|---|
-| `dnix.developer.enable` | `false` | Turns the module on. |
-| `dnix.developer.root` | `~/Developer` | Where the tree lives. |
-| `dnix.developer.repositories` | none | The roster, one row per repo. The host lists every row. |
-| `dnix.developer.gitPath` | `~/.local/bin`, Homebrew and the system dirs | The `PATH` the clones run on, for a host whose git or ssh lives elsewhere. |
-| `dnix.developer.instructionDirs` | none | More folders of `NN-name.md` sections, read like `instructions/`. |
-| `dnix.developer.instructions` | `instructions/*.md` and `instructionDirs` | The sections `AGENTS.md` is composed from. |
-| `dnix.developer.agentsText` | read-only | The composed `AGENTS.md`, for a harness that never reads it by walking up. |
-
-A `repositories` row:
-
-| Field | Default | Meaning |
-|---|---|---|
-| `path` | required | `<group>/<repo>`, the row's identity |
-| `dir` | `path` | where the clone lands under the root; its first segment is the group |
-| `name` | basename of `path` | the name in warnings and in a session label |
-| `url` | required | `origin` |
-| `upstream` | `null` | a second remote, for a fork |
-| `addDirs` | `[ "." ]` | the directories an agent session adds, relative to the clone |
+Git and any transport credentials must be available during activation. `dnix.developer.gitPath` controls the activation PATH.
+With [the dnix input available](../../README.md#use-a-module), add:
 
 ```nix
-dnix.developer.repositories = [
-  { path = "delucca/dnix"; url = "git@github.com:delucca/dnix.git"; }
-  { path = "acme/core"; dir = "acme/repos/core"; url = "git@github.com:acme/core.git"; upstream = "https://github.com/vuejs/core.git"; }
-];
+{ inputs, ... }: {
+  imports = [ inputs.dnix.homeManagerModules.developer ];
+  dnix.developer = {
+    enable = true;
+    repositories = [
+      { path = "delucca/dnix"; url = "https://github.com/delucca/dnix.git"; }
+    ];
+  };
+}
 ```
 
-## What a switch does
+See [the option definitions](default.nix) for the roster and root settings.
+A row's `path` identifies it; `dir` defaults to that path and sets its location under the root. The first directory segment determines its group. `upstream` adds a fork's second remote, and `addDirs` supplies directories for agent sessions.
 
-- Clones every row that is absent into `<root>/<dir>`, in `dir` order so a clone nested under another lands after its parent. A failed clone warns and the switch goes on; re-run it once auth works. A path that exists and is not a git checkout is left alone.
-- Reconciles `origin` and `upstream` on every existing clone, so a renamed repo needs only its row changed.
-- Creates `<root>/<group>/.worktrees` for every group.
-- Writes `<root>/AGENTS.md`, and a `CLAUDE.md` beside it that only imports it: Codex reads `AGENTS.md` and has no import, so that is the real file.
+## Activation behavior
 
-## Composing AGENTS.md
+Activation clones missing rows in directory order, so a parent clone precedes nested members. A failed clone warns and lets activation continue; an existing non-checkout is left alone.
+For existing checkouts it reconciles `origin` and any configured `upstream`, then creates `<root>/<group>/.worktrees`.
+Removing a roster row does not delete its checkout, and removing `upstream` from a row does not delete that remote.
 
-The sections are concatenated by `order`. A file `NN-name.md` in `instructions/` or in an `instructionDirs` folder becomes the section `name` at order `NN`. The module's own sections sit at 10, 20 and 30, so a section can slot between them. Two sections with the same name are an error.
+The module writes `<root>/AGENTS.md` and a `CLAUDE.md` containing `@AGENTS.md`. Task worktrees are created by the workflow described in those instructions, rather than by roster activation.
 
-The module's sections describe only what it makes: the tree, the worktree workflow, and how to add a repo. Anything specific to a person or a company, such as ticket rules or where tests run, comes from the flake that imports it:
+## Compose instructions
 
-```nix
-dnix.developer.instructionDirs = [ ./instructions ];
-dnix.developer.instructions.<name> = { order = 50; source = ./<file>.md; };
-```
+The shipped [instruction sections](instructions/) describe the tree, worktree workflow and repository registration.
+Add consumer-specific sections through `dnix.developer.instructionDirs`, using files named `NN-name.md`, or through `dnix.developer.instructions.<name>` with an `order` and either `source` or `text`.
+Sections are concatenated by numeric order. Use distinct names in instruction directories: duplicate names collapse to one attribute rather than producing a separate section.
 
-`text` can be set in place of `source`.
+`dnix.developer.agentsText` exposes the composed text to harnesses that do not walk up to the tree root. Keep machine, organisation and ticket policy in the consumer's sections.
