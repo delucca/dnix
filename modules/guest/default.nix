@@ -1,16 +1,12 @@
-{ config, lib, ... }:
+{ config, lib, modulesPath, ... }:
 
 let
   cfg = config.dnix.guest;
 in
 {
-  imports = [ ./lxc.nix ./vm.nix ];
+  imports = [ "${modulesPath}/virtualisation/proxmox-lxc.nix" ];
 
   options.dnix.guest = {
-    platform = lib.mkOption {
-      type = lib.types.enum [ "lxc" "vm" ];
-      default = "lxc";
-    };
     node = lib.mkOption { type = lib.types.str; };
     vmid = lib.mkOption { type = lib.types.int; };
     cores = lib.mkOption {
@@ -28,10 +24,6 @@ in
     rootfs = lib.mkOption {
       type = lib.types.str;
       default = "local-lvm:8";
-    };
-    extraDisks = lib.mkOption {
-      type = lib.types.listOf lib.types.str;
-      default = [ ];
     };
     mounts = lib.mkOption {
       type = lib.types.listOf lib.types.str;
@@ -85,6 +77,14 @@ in
     };
     security.sudo.wheelNeedsPassword = false;
 
+    proxmoxLXC = {
+      enable = true;
+      manageHostName = true;
+    };
+    networking.interfaces.eth0.useDHCP = true;
+    # The IPv6 router advertisement lands first, and network-online would
+    # otherwise fire before the DHCPv4 lease that carries the route out.
+    systemd.network.networks."40-eth0".linkConfig.RequiredFamilyForOnline = "ipv4";
 
     system.stateVersion = "26.05";
   };
