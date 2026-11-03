@@ -15,10 +15,23 @@ let
   run = pkgs.writeShellScript name ''
     set -euo pipefail
     printf '%(%F %T)T start\n' -1
-    restic-notebooks cat config >/dev/null 2>&1 || restic-notebooks init
+    host="$(/bin/hostname -s)"
+    rc=0
+    restic-notebooks cat config >/dev/null || rc=$?
+    ${lib.optionalString backup.autoInit ''
+      # restic exits 10 only when the repository does not exist
+      if [ "$rc" -eq 10 ]; then
+        restic-notebooks init
+        rc=0
+      fi
+    ''}
+    if [ "$rc" -ne 0 ]; then
+      exit "$rc"
+    fi
     ${find} ${lib.escapeShellArg cfg.root} -name notebook.org -not -path '*/node_modules/*' -print0 \
-      | restic-notebooks backup --quiet --skip-if-unchanged --files-from-raw /dev/stdin ${lib.escapeShellArgs backup.extraPaths}
-    restic-notebooks forget --quiet --host "$(/bin/hostname -s)" \
+      | restic-notebooks backup --quiet --skip-if-unchanged --host "$host" --group-by host \
+          --files-from-raw /dev/stdin ${lib.escapeShellArgs backup.extraPaths}
+    restic-notebooks forget --quiet --host "$host" --group-by host \
       --keep-hourly 48 --keep-daily 30 --keep-monthly 12
     if [ -z "$(${find} ${lib.escapeShellArg pruneStamp} -mmin -1440 2>/dev/null)" ]; then
       restic-notebooks prune --quiet
@@ -47,6 +60,10 @@ in
     extraPaths = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ ];
+    };
+    autoInit = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
     };
   };
 
