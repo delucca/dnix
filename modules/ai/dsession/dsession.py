@@ -45,6 +45,9 @@ import tomllib
 USAGE = "usage: dsession new|resume ID [--dir PATH]... [--context FILE] -- CLIENT [ARGS...] | trust [--dir PATH]..."
 GENERATED = ("AGENTS.md", "skills", "hooks.json", "agents")
 IGNORED = ("AGENTS.override.md",)
+# Codex refuses a symlinked daemon directory (a shared one would serve the base
+# config), and keys secrets to the resolved CODEX_HOME, so a shared store is unreadable.
+LOCAL = ("app-server-control", "app-server-daemon", "secrets")
 SCRATCH = ("AGENTS.md.tmp", "hooks.json.tmp")
 SKILLS_PREFIX = "skills."
 ADAPTERS = ("codex", "claude", "agy")
@@ -419,6 +422,10 @@ def clear_strays(codex_home, base):
         if name in SCRATCH:
             remove_entry(path)
             continue
+        if name in LOCAL:
+            if os.path.islink(path):
+                os.unlink(path)
+            continue
         if os.path.islink(path):
             if name in IGNORED or not os.path.exists(path) or os.readlink(path) != os.path.join(base, name):
                 os.unlink(path)
@@ -431,7 +438,7 @@ def link_base(codex_home, base):
         if name in IGNORED:
             warn("ignoring " + os.path.join(base, name) + " so the composed AGENTS.md applies")
             continue
-        if name in GENERATED or name.startswith(VERSIONED):
+        if name in GENERATED or name in LOCAL or name.startswith(VERSIONED):
             continue
         path = os.path.join(codex_home, name)
         target = os.path.join(base, name)

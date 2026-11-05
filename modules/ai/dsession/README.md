@@ -47,7 +47,7 @@ Codex receives context through `developer_instructions`; a later client `-c` ove
 
 ## Persistence
 
-Generated files live under `/tmp/dsession-<user>/`. Codex's overlay links ordinary configuration and session storage back to its base home, so sessions remain available from a plain `codex resume` after the temporary files disappear. Claude and agy retain their normal homes. Each launch rebuilds the needed generated files.
+Generated files live under `/tmp/dsession-<user>/`. Codex's overlay links ordinary configuration and session storage back to its base home, so sessions remain available from a plain `codex resume` after the temporary files disappear. Three entries stay per overlay instead: `app-server-daemon` and `app-server-control`, because Codex refuses a symlinked daemon directory, and `secrets`, because Codex binds stored credentials to the resolved `CODEX_HOME`. Each overlay therefore signs in once, and signs in again after `/tmp` is cleared. Claude and agy retain their normal homes. Each launch rebuilds the needed generated files.
 
 The launcher refuses overlay directories owned by another user or represented by symlinks. Its diagnostics go to stderr with a `dsession:` prefix. See [dsession.py](dsession.py) for overlay composition and failure handling.
 

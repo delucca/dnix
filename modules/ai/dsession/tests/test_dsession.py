@@ -409,6 +409,25 @@ class Overlay(Case):
         self.assertFalse(os.path.lexists(os.path.join(home, ".hidden")))
         self.assertEqual(os.readlink(os.path.join(home, "x.sqlite")), os.path.join(self.base, "x.sqlite"))
 
+    def test_codex_home_bound_directories_stay_in_the_overlay(self):
+        self.fixture_base()
+        for name in ("app-server-control", "app-server-daemon", "secrets"):
+            write(os.path.join(self.base, name, "daemon.pid"), "base")
+        d = self.mkdir("d")
+        home, _ = self.regenerate([d])
+        for name in ("app-server-control", "app-server-daemon", "secrets"):
+            self.assertFalse(os.path.lexists(os.path.join(home, name)), name)
+        os.symlink(os.path.join(self.base, "app-server-daemon"), os.path.join(home, "app-server-daemon"))
+        write(os.path.join(home, "app-server-control", "daemon.pid"), "overlay")
+        home, err = self.regenerate([d])
+        self.assertFalse(os.path.lexists(os.path.join(home, "app-server-daemon")))
+        self.assertFalse(os.path.islink(os.path.join(home, "app-server-control")))
+        with open(os.path.join(home, "app-server-control", "daemon.pid")) as f:
+            self.assertEqual(f.read(), "overlay")
+        with open(os.path.join(self.base, "app-server-control", "daemon.pid")) as f:
+            self.assertEqual(f.read(), "base")
+        self.assertNotIn("adopted", err)
+
     def test_stray_regular_file_is_adopted_into_base(self):
         self.fixture_base()
         d = self.mkdir("d")
