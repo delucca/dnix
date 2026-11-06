@@ -53,4 +53,5 @@ in
   ai-vectorcraft = craft "vectorcraft";
   ai-figcraft = craft "figcraft";
   ai-glyphs = craft "glyphs";
+  ai-safari = craft "safari";
 }
