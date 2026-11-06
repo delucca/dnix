@@ -128,6 +128,9 @@ const ops = {
     if (!read.ok) throw new Refusal(`reading the source tab failed: ${read.error}`);
     let value = read.v === null || read.v === undefined ? "" : String(read.v);
     if (!value) throw new Refusal("the source read returned an empty value");
+    if (req.expectPrefix && !value.startsWith(req.expectPrefix)) {
+      throw new Refusal(`the value read does not start with "${req.expectPrefix}"; nothing was filled`);
+    }
     const code = req.fillTemplate.split(req.placeholder).join(JSON.stringify(value));
     let fill;
     try {
@@ -136,12 +139,10 @@ const ops = {
       throw new Refusal("the destination tab returned nothing; it cannot run scripts");
     }
     const length = value.length;
-    // Four characters of a short value would give most of it away.
-    const prefix = length >= 16 ? value.slice(0, 4) : "";
     value = "";
     if (!fill.ok) throw new Refusal(`filling the destination failed: ${fill.error}`);
     if (fill.v && fill.v.error) throw new Refusal(`filling the destination failed: ${fill.v.error}`);
-    return { from: idOf(src.w, src.t), to: idOf(dst.w, dst.t), length, prefix, filled: fill.v ? fill.v.filled : null };
+    return { from: idOf(src.w, src.t), to: idOf(dst.w, dst.t), length, filled: fill.v ? fill.v.filled : null };
   },
 };
 

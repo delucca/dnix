@@ -36,7 +36,7 @@ python3 {baseDir}/scripts/safari.py source [--tab T]
 python3 {baseDir}/scripts/safari.py click [CSS|XPATH] [--text 'Visible text'] [--nth N] [--tab T]
 python3 {baseDir}/scripts/safari.py fill CSS 'value' [--tab T]
 python3 {baseDir}/scripts/safari.py wait [--selector CSS [--gone] | --text 'words'] [--timeout 20] [--tab T]
-python3 {baseDir}/scripts/safari.py copy --from T --to T (--selector CSS | --js 'JS') --field CSS
+python3 {baseDir}/scripts/safari.py copy --from T --to T (--selector CSS | --js 'JS') --field CSS [--expect-prefix PREFIX]
 python3 {baseDir}/scripts/safari.py screenshot [--tab T] [--output PATH]
 python3 {baseDir}/scripts/safari.py close --tab T
 ```
@@ -51,7 +51,7 @@ python3 {baseDir}/scripts/safari.py close --tab T
 - `click` takes a CSS selector, an XPath (starting with `/`), `--text`, or a selector plus `--text`. Text matching searches clickable elements, exact match first, then substring. When several elements match, it refuses and lists them; rerun with `--nth`. It dispatches pointer and mouse events before `click()`, so menus that open on `pointerdown` respond.
 - `fill` sets the value through the native setter and fires `input` and `change`, so React and Vue state sees it. It refuses a selector that matches several elements or something that is not a field.
 - `wait` polls until the selector appears (or, with `--gone`, disappears), the text shows up, or with neither flag, the page finishes loading. Use it instead of `sleep`.
-- `copy` reads a value in one tab and writes it into a field in another within a single `osascript` run. It prints only the length and, for values of 16 or more characters, the first four. Move every secret this way, such as a freshly generated API key, so it never enters the transcript.
+- `copy` reads a value in one tab and writes it into a field in another within a single `osascript` run. It prints only the length. To confirm it is the right kind of key, pass `--expect-prefix` (for example `--expect-prefix sk_`): a value that does not start with it is refused before anything is filled. Move every secret this way, such as a freshly generated API key, so it never enters the transcript.
 - `screenshot` brings the tab's window to the front for about a second, because macOS cannot capture a background or Stage Manager window. It captures the visible viewport, not the full page, and gives focus back to the previous app. Open the saved PNG to look at it.
 - `close` closes one tab and requires `--tab`.
 

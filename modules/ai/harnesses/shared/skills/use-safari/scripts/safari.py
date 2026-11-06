@@ -377,11 +377,12 @@ def cmd_copy(args) -> None:
         placeholder=PLACEHOLDER,
         readCode=envelope(read_body),
         fillTemplate=envelope(fill_body),
+        expectPrefix=args.expect_prefix,
         **{"from": args.source, "to": args.dest},
     )
-    shown = f"{reply['prefix']}…" if reply["prefix"] else "value"
+    checked = f", starting with {args.expect_prefix!r}" if args.expect_prefix else ""
     print(
-        f"copied {shown} ({reply['length']} chars) from {reply['from']} into {args.field} on {reply['to']}; "
+        f"copied {reply['length']} chars{checked} from {reply['from']} into {args.field} on {reply['to']}; "
         f"the field now holds {reply['filled']} chars"
     )
 
@@ -469,6 +470,7 @@ def parser() -> argparse.ArgumentParser:
     read = p.add_mutually_exclusive_group(required=True)
     read.add_argument("--selector", help="element whose value or text is copied")
     read.add_argument("--js", help="JS returning the value to copy")
+    p.add_argument("--expect-prefix", help="refuse unless the value starts with this; nothing of the value is printed")
     p.set_defaults(fn=cmd_copy)
 
     p = sub.add_parser("screenshot", parents=[tab], help="capture the tab's window (raises Safari for a moment)")

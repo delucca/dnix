@@ -153,7 +153,7 @@ class SafariCliTest(unittest.TestCase):
         self.assertEqual(run(Fake([]), "click")[0], 1)
 
     def test_copy_leaves_the_value_to_the_runner(self):
-        reply = {"ok": True, "from": "7:1", "to": "7:2", "length": 56, "prefix": "key_", "filled": 56}
+        reply = {"ok": True, "from": "7:1", "to": "7:2", "length": 56, "filled": 56}
         fake = Fake([reply])
         code, out, _ = run(fake, "copy", "--from", "issuer", "--to", "settings", "--selector", "code", "--field", "#key")
         request = fake.requests[0]
@@ -161,7 +161,21 @@ class SafariCliTest(unittest.TestCase):
         self.assertEqual(request["fillTemplate"].count(request["placeholder"]), 1)
         self.assertNotIn(request["placeholder"], request["readCode"])
         self.assertEqual((request["from"], request["to"]), ("issuer", "settings"))
-        self.assertIn("copied key_… (56 chars)", out)
+        self.assertIsNone(request["expectPrefix"])
+        self.assertIn("copied 56 chars from 7:1", out)
+
+    def test_copy_checks_a_prefix_without_printing_the_value(self):
+        reply = {"ok": True, "from": "7:1", "to": "7:2", "length": 56, "filled": 56}
+        fake = Fake([reply])
+        code, out, _ = run(fake, "copy", "--from", "a", "--to", "b", "--js", "x()", "--field", "#key", "--expect-prefix", "key_")
+        self.assertEqual((code, fake.requests[0]["expectPrefix"]), (0, "key_"))
+        self.assertIn("copied 56 chars, starting with 'key_' from 7:1", out)
+
+    def test_copy_reports_a_prefix_mismatch(self):
+        refusal = {"ok": False, "error": 'the value read does not start with "key_"; nothing was filled', "code": None, "appleEvent": False}
+        code, _, err = run(Fake([refusal]), "copy", "--from", "a", "--to", "b", "--js", "x()", "--field", "#key", "--expect-prefix", "key_")
+        self.assertEqual(code, 1)
+        self.assertIn("nothing was filled", err)
 
     def test_tabs_hide_query_strings_unless_full(self):
         reply = {"ok": True, "windows": [{"id": 7, "tabs": [
